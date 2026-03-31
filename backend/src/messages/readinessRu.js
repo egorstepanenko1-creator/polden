@@ -21,3 +21,15 @@ export const BLOCKER_MENU_CAPTION_SHORT =
 
 export const BLOCKER_MENU_URL_UNSAFE =
   'Ссылка в меню не готова к публикации: задайте PUBLIC_SITE_ORIGIN или полный https-адрес в targetUrl материала.';
+
+export const BLOCKER_VK_ORDERABLE_MENU_EMPTY =
+  'Для заказа из VK на «завтра» нет строк меню с названием в CRM (MenuDayItem): заполните «Меню на день» для первой/единственной точки.';
+
+export const BLOCKER_NO_BRANCH_IN_DB = 'В БД нет ни одной точки (Branch) — заказ из VK недоступен.';
+
+/** Диагностика для CRM: почему клиент видит текст про «заявку приняту» vs заказ. */
+export const VK_DIAG_LEAD_ACCEPTED_EXPLANATION =
+  'Сообщение «Заявка принята…» в боте отправляется только после полного сценария «Оставить заявку» (имя → телефон → адрес → дата → комментарий). Это не ответ API создания DeliveryOrder.';
+
+export const VK_DIAG_ORDER_BUTTON_RESETS_LEAD =
+  'Если пользователь начал «Оставить заявку», затем нажал «Оформить заказ», черновик заявки сбрасывается и открывается заказ на завтра (нужен MenuDayItem с названиями в CRM).';

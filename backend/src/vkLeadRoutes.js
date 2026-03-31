@@ -32,6 +32,7 @@ function serializeLead(row) {
     rawPayloadJson: row.rawPayloadJson,
     menuContentItemId: row.menuContentItemId,
     attributionCampaign: row.attributionCampaign,
+    convertedOrderId: row.convertedOrderId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
   };
@@ -42,6 +43,59 @@ function serializeLead(row) {
  */
 export function createVkLeadRouter(prisma) {
   const r = Router();
+
+  /**
+   * Компактная сводка для оператора: лиды VK, активные диалоги, заказы VK на дату доставки (при branchId+deliveryDate).
+   * GET /api/vk-leads/snapshot?branchId=&deliveryDate=YYYY-MM-DD
+   */
+  r.get('/snapshot', async (req, res) => {
+    try {
+      const branchId = req.query.branchId != null ? String(req.query.branchId).trim() : '';
+      const deliveryDate = req.query.deliveryDate != null ? String(req.query.deliveryDate).trim() : '';
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const [leadsNew, leadsToday, leadsNeedFollowUp, convNonIdle] = await Promise.all([
+        prisma.vkLead.count({ where: { status: 'NEW' } }),
+        prisma.vkLead.count({ where: { createdAt: { gte: start } } }),
+        prisma.vkLead.count({
+          where: {
+            status: { in: ['NEW', 'CONTACTED'] },
+            convertedOrderId: null
+          }
+        }),
+        prisma.vkConversationState.count({ where: { NOT: { currentState: 'IDLE' } } })
+      ]);
+      /** @type {number | null} */
+      let ordersVkOnDeliveryDate = null;
+      /** @type {number | null} */
+      let ordersVkNewOnDeliveryDate = null;
+      if (branchId && deliveryDate) {
+        [ordersVkOnDeliveryDate, ordersVkNewOnDeliveryDate] = await Promise.all([
+          prisma.deliveryOrder.count({
+            where: { branchId, deliveryDate, sourceChannel: 'VK' }
+          }),
+          prisma.deliveryOrder.count({
+            where: { branchId, deliveryDate, sourceChannel: 'VK', status: 'NEW' }
+          })
+        ]);
+      }
+      res.json(
+        ok({
+          calendarDate: start.toISOString().slice(0, 10),
+          leadsNew,
+          leadsCreatedToday: leadsToday,
+          leadsNeedFollowUp,
+          vkConversationsActive: convNonIdle,
+          ordersVkOnDeliveryDate,
+          ordersVkNewOnDeliveryDate,
+          branchId: branchId || null,
+          deliveryDate: deliveryDate || null
+        })
+      );
+    } catch (e) {
+      res.status(500).json(fail(e.message || 'snapshot failed', 'INTERNAL'));
+    }
+  });
 
   r.get('/', async (req, res) => {
     const status = req.query.status != null ? String(req.query.status).trim() : '';

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Полдень — обед на завтра по предзаказу. Соберите меню сегодня, получите свежую доставку завтра в обед." />
-  <title>Полдень — обед на завтра</title>
+  <meta name="description" content="Полдень — предзаказ обеда на следующий день: меню из системы, понятная сумма до отправки, доставка в обеденное окно." />
+  <title>Полдень — предзаказ обеда на завтра</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
@@ -211,6 +211,62 @@
     @media(max-width:900px){
       .grid{grid-template-columns:1fr}
     }
+    /* Honeypot: не для пользователей */
+    .polden-hp{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none}
+
+    /* Launch shell v1 */
+    .trust-strip{padding:clamp(24px,5vw,40px) 18px;background:var(--white);border-bottom:1px solid var(--line)}
+    .trust-strip__inner{max-width:1040px;margin:0 auto}
+    .trust-strip h2{font-family:var(--font-display);font-size:clamp(1.1rem,2.5vw,1.25rem);margin:0 0 16px;letter-spacing:-.02em}
+    .trust-pills{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:640px){.trust-pills{grid-template-columns:repeat(3,1fr)}}
+    .trust-pill{
+      border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px 16px;background:var(--cream);
+      font-size:14px;line-height:1.45;color:var(--text);
+    }
+    .trust-pill strong{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--g);margin-bottom:6px}
+
+    .order-context-bar{
+      display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 18px;padding:12px 14px;
+      background:linear-gradient(135deg,rgba(47,107,79,.08),rgba(47,107,79,.03));border:1px solid var(--line);border-radius:var(--radius-sm);
+      font-size:14px;
+    }
+    .order-context-bar .chip{display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:var(--white);border:1px solid var(--line);font-weight:600;font-size:13px}
+    .order-context-bar .chip--live{border-color:rgba(46,125,79,.45);color:var(--g2)}
+    .order-context-bar .chip--wait{border-color:#c9a227;color:#6b5a1a}
+    .field-hint{font-size:12px;color:var(--muted);font-weight:500;margin:4px 0 0;line-height:1.4}
+
+    .menuBlock__intro{font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.45}
+    .menuRow{min-height:48px}
+    .qty button{min-width:44px;min-height:44px;touch-action:manipulation}
+    .qty .qty-label{font-size:11px;color:var(--muted);display:block;text-align:center;margin-top:2px}
+
+    .summary-card .sum{font-size:clamp(1.05rem,3vw,1.2rem);padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:12px 0}
+    .summary-card .sum-sub{font-size:12px;font-weight:500;color:var(--muted);margin-top:6px}
+
+    .order-success-panel{border-radius:var(--radius);box-shadow:0 8px 28px rgba(32,49,40,.08)}
+    .order-success-panel .success-icon{
+      width:48px;height:48px;border-radius:50%;background:rgba(46,125,79,.15);color:var(--g2);
+      display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;margin-bottom:12px;
+    }
+    .order-success-steps{margin:16px 0 0;padding:14px 16px;background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--line);font-size:14px;line-height:1.5}
+    .order-success-steps strong{display:block;margin-bottom:8px}
+
+    .bridge-section .bridge-cards{display:grid;grid-template-columns:1fr;gap:14px;max-width:720px}
+    @media(min-width:640px){.bridge-section .bridge-cards{grid-template-columns:1fr 1fr}}
+    .bridge-card{
+      border:1px solid var(--line);border-radius:var(--radius);padding:20px 18px;background:var(--white);
+      min-height:120px;
+    }
+    .bridge-card h3{margin:0 0 8px;font-size:16px;font-family:var(--font-display)}
+    .bridge-card p{margin:0;font-size:14px;color:var(--muted);line-height:1.5}
+    .bridge-card a.bridge-cta{
+      display:inline-flex;margin-top:12px;font-weight:600;font-size:14px;color:var(--g);text-decoration:none;border-bottom:2px solid rgba(47,107,79,.35);
+    }
+    .bridge-card a.bridge-cta:hover{border-bottom-color:var(--g)}
+    .bridge-footnote{font-size:12px;color:var(--muted);margin-top:16px;max-width:42rem;line-height:1.45}
+
+    .site-footer .footer-legal{font-size:11px;color:#8a9590;max-width:36rem;margin-top:8px}
   </style>
 </head>
 <body>
@@ -225,7 +281,10 @@
           <span class="brand-tag">Обед на завтра</span>
         </span>
       </a>
-      <a class="btn-cta-header" href="#order">Заказать</a>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <a class="btn-cta-header" href="#order">К заказу</a>
+        <a href="#b2b-corporate" style="font-weight:600;font-size:14px;color:var(--g2);text-decoration:underline;text-underline-offset:3px">Обед в офис</a>
+      </div>
     </div>
   </header>
 
@@ -234,20 +293,31 @@
       <div class="shell-hero__inner">
         <div class="shell-hero__card">
           <div class="shell-hero__content">
-            <p class="shell-kicker">Сервис обедов · предзаказ</p>
-            <h1 id="hero-heading">Завтрашний обед уже решён</h1>
-            <p class="shell-lead">Выберите блюда сегодня — мы приготовим свежим и привезём в удобное обеденное окно. Спокойно, вкусно, без суеты в разгар дня.</p>
-            <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Собрать обед на завтра</button>
-            <p class="shell-trust">Меню дня · понятная цена до отправки заявки · доставка в согласованное время</p>
+            <p class="shell-kicker">Полдень · предзаказ обеда</p>
+            <h1 id="hero-heading">Обед на завтра — без суеты в полдень</h1>
+            <p class="shell-lead">Соберите меню из актуальных позиций на завтра, увидите сумму до отправки и оставьте заявку. Мы готовим к доставке и привозим в согласованное обеденное окно.</p>
+            <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Собрать меню и оформить</button>
+            <p class="shell-trust">Заказ на <strong>следующий календарный день</strong> · меню из системы · подтверждение с оператором</p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="trust-strip" aria-labelledby="trust-heading">
+      <div class="trust-strip__inner">
+        <h2 id="trust-heading">Почему этим можно пользоваться</h2>
+        <div class="trust-pills">
+          <div class="trust-pill"><strong>Прозрачно</strong>Состав и сумма считаются до нажатия «Подтвердить заявку» — без скрытых доплат на сайте.</div>
+          <div class="trust-pill"><strong>По факту меню</strong>Онлайн-заказ открывается только когда завтрашнее меню подтверждено в нашей системе — не «угадываем» блюда.</div>
+          <div class="trust-pill"><strong>Живой контакт</strong>После заявки оператор свяжется для подтверждения — так мы фиксируем детали доставки.</div>
         </div>
       </div>
     </section>
 
     <section class="shell-section shell-section--tint" aria-labelledby="how-heading">
       <div class="wrap-inner">
-        <h2 id="how-heading">Как это работает</h2>
-        <p class="section-intro">Три шага — и обед на завтра в работе.</p>
+        <h2 id="how-heading">Как оформить заказ</h2>
+        <p class="section-intro">Три шага: меню на <strong>завтра</strong> (дата доставки — следующий день относительно сегодня), заявка, доставка в обед.</p>
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
@@ -270,8 +340,8 @@
 
     <section class="shell-section" aria-labelledby="benefits-heading">
       <div class="wrap-inner">
-        <h2 id="benefits-heading">Почему это удобно</h2>
-        <p class="section-intro">Без шума и лишних обещаний — то, что важно для рабочего дня.</p>
+        <h2 id="benefits-heading">Формат сервиса</h2>
+        <p class="section-intro">Коротко о том, как устроен Полдень — без маркетинговой «магии».</p>
         <div class="benefits">
           <div class="benefit">
             <h3>Свежее меню дня</h3>
@@ -293,9 +363,47 @@
       </div>
     </section>
 
-    <section class="shell-section shell-section--tint" aria-labelledby="menu-preview-heading">
+    <section class="shell-section" id="b2b-corporate" aria-labelledby="b2b-heading">
+      <div class="wrap-inner">
+        <h2 id="b2b-heading">Обед в офис</h2>
+        <p class="section-intro">
+          Для команд и компаний: одна точка доставки, несколько порций, повторные поставки. Оставьте заявку — оператор
+          перезвонит и согласует меню, окно и условия. Это не замена личному заказу: состав и цена фиксируются при
+          общении, без обещаний «сразу на сайте».
+        </p>
+        <div class="card" style="max-width:560px;margin-top:8px">
+          <h3 class="title" style="font-size:17px">Заявка на корпоративный формат</h3>
+          <p class="muted" style="margin-top:0">Поля ниже — только для связи. Индивидуальный расчёт — после контакта.</p>
+          <form id="b2b-form">
+            <label for="b2b-company">Компания / отдел</label>
+            <input id="b2b-company" required placeholder="ООО Пример" autocomplete="organization" />
+            <label for="b2b-contact">Контактное лицо</label>
+            <input id="b2b-contact" required placeholder="Имя Фамилия" autocomplete="name" />
+            <label for="b2b-phone">Телефон</label>
+            <input id="b2b-phone" required placeholder="+7 …" inputmode="tel" autocomplete="tel" />
+            <label for="b2b-city">Город</label>
+            <input id="b2b-city" required placeholder="Город" autocomplete="address-level2" />
+            <label for="b2b-address">Адрес доставки (офис)</label>
+            <input id="b2b-address" required placeholder="Улица, дом, этаж, офис" autocomplete="street-address" />
+            <label for="b2b-headcount">Оценка численности (чел.)</label>
+            <input id="b2b-headcount" type="number" min="1" max="5000" placeholder="например, 15" />
+            <label for="b2b-time">Желаемое время доставки</label>
+            <input id="b2b-time" placeholder="например, 12:30–13:30" />
+            <label for="b2b-comment">Комментарий</label>
+            <textarea id="b2b-comment" rows="3" placeholder="Дни недели, ограничения, пожелания"></textarea>
+            <label class="polden-hp" for="b2b-polden-hp" aria-hidden="true">Не заполнять</label>
+            <input class="polden-hp" type="text" id="b2b-polden-hp" name="polden_hp" autocomplete="off" tabindex="-1" aria-hidden="true" value="" />
+            <button type="submit" class="btn" style="margin-top:14px">Отправить заявку</button>
+            <div id="b2b-status" class="status" role="status" aria-live="polite"></div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell-section shell-section--tint" id="menu-tomorrow" aria-labelledby="menu-preview-heading">
       <div class="wrap-inner preview-strip">
         <h2 id="menu-preview-heading" class="preview-heading">Меню на завтра</h2>
+        <p class="section-intro" style="margin-top:-12px">Ниже — позиции на дату доставки <strong>завтра</strong>. Подпись статуса показывает, совпадает ли список с живыми данными системы.</p>
         <div id="menu-preview-context" class="menu-preview-context" aria-live="polite"></div>
         <div id="menu-preview-cards" class="preview-cards"></div>
         <p id="menu-preview-footnote" class="menu-preview-footnote muted" role="note"></p>
@@ -304,62 +412,94 @@
 
     <section id="order" class="order-section">
       <div class="wrap-inner">
-        <p class="order-kicker">Заказ</p>
-        <h2 class="order-title">Соберите обед и отправьте заявку</h2>
+        <p class="order-kicker">Онлайн-заявка</p>
+        <h2 class="order-title">Соберите обед и подтвердите заявку</h2>
         <p class="order-sub" id="order-context-line">Дата доставки — завтра. После отправки свяжемся для подтверждения.</p>
+        <div id="order-context-bar" class="order-context-bar" aria-live="polite" hidden></div>
         <div id="order-gate-banner" class="order-gate-banner" role="status" aria-live="polite"></div>
         <div id="order-success-panel" class="order-success-panel" role="region" aria-labelledby="order-success-title" hidden></div>
 
         <div class="grid">
           <form id="form" class="card">
-            <h2 class="title">Оформление заявки</h2>
+            <h2 class="title">Данные для доставки</h2>
+            <p class="muted" style="margin-top:0;font-size:13px">Нужны имя, телефон и выбор блюд. Адрес и комментарий помогают курьеру — укажите по возможности.</p>
 
             <div class="meta meta--single">
               <div>
-                <label>Дата подтверждения</label>
-                <input id="fixedDate" readonly />
+                <label for="fixedDate">Дата доставки (завтра)</label>
+                <input id="fixedDate" readonly aria-describedby="fixedDate-hint" />
+                <p id="fixedDate-hint" class="field-hint">Фиксированная дата предзаказа: следующий день от сегодня.</p>
               </div>
             </div>
 
-            <label>Формат заказа (меню дня)</label>
-            <div id="menu" class="menuBlock"></div>
+            <p id="menu-section-title" style="font-size:13px;font-weight:600;margin:8px 0 6px">Меню на эту дату</p>
+            <p id="menuBlockIntro" class="menuBlock__intro">Выберите порции кнопками +/−. Комбо: одна позиция из блоков суп / горячее / салат. Дополнения — отдельно, с ценой за порцию.</p>
+            <div id="menu" class="menuBlock" role="group" aria-labelledby="menu-section-title"></div>
 
             <div class="meta">
               <div>
-                <label>Имя</label>
-                <input id="name" required placeholder="Как к вам обращаться" />
+                <label for="name">Имя</label>
+                <input id="name" required placeholder="Иван" autocomplete="name" />
+                <p class="field-hint">Как обращаться при звонке.</p>
               </div>
               <div>
-                <label>Телефон</label>
-                <input id="phone" required placeholder="+7 900 123 45 67" />
+                <label for="phone">Телефон</label>
+                <input id="phone" required placeholder="+7 900 123 45 67" inputmode="tel" autocomplete="tel" />
+                <p class="field-hint">Для подтверждения заказа.</p>
               </div>
             </div>
 
-            <label>Адрес</label>
-            <input id="address" placeholder="Улица, дом, офис/кв" />
+            <label for="address">Адрес доставки</label>
+            <input id="address" placeholder="Город, улица, дом, подъезд, этаж, офис" autocomplete="street-address" />
+            <p class="field-hint">Если адрес уточните позже — напишите в комментарии.</p>
 
-            <label>Комментарий</label>
-            <textarea id="comment" placeholder="Пожелания к заказу"></textarea>
+            <label for="comment">Комментарий</label>
+            <textarea id="comment" placeholder="Время окна, домофон, пожелания к блюдам" rows="3"></textarea>
 
-            <div class="sum"><span>Итого</span><span id="total">0 ₽</span></div>
-            <button id="submit" class="btn" type="submit">Отправить заявку</button>
+            <label class="polden-hp" for="polden_hp" aria-hidden="true">Не заполнять</label>
+            <input class="polden-hp" type="text" id="polden_hp" name="polden_hp" autocomplete="off" tabindex="-1" aria-hidden="true" value="" />
+
+            <div class="sum"><span>К оплате по меню</span><span id="total">0 ₽</span></div>
+            <button id="submit" class="btn" type="submit">Подтвердить заявку</button>
             <div id="status" class="status"></div>
           </form>
 
-          <aside class="card">
-            <h3 class="title">Ваша заявка</h3>
-            <p class="muted">Список позиций и сумма обновляются при выборе блюд.</p>
+          <aside class="card summary-card">
+            <h3 class="title">Сводка</h3>
+            <p class="muted">Состав и сумма пересчитываются при каждом изменении. Итог совпадает с тем, что уйдёт на сервер.</p>
             <ul id="preview" class="preview muted"></ul>
-            <p class="muted">Полдень — обеды по предзаказу: готовим к доставке, привозим в согласованное время.</p>
+            <div class="sum"><span>Итого</span><span id="total-aside">0 ₽</span></div>
+            <p id="preview-sum-sub" class="sum-sub"></p>
+            <p class="muted" style="font-size:12px;margin-top:12px">Оплата и финальные условия — при подтверждении с оператором.</p>
           </aside>
         </div>
       </div>
     </section>
 
+    <section class="shell-section bridge-section shell-section--tint" id="contact-bridge" aria-labelledby="bridge-heading">
+      <div class="wrap-inner">
+        <h2 id="bridge-heading">Вопросы и ВКонтакте</h2>
+        <p class="section-intro">Заказ из сообщества VK или нужна помощь до оформления — используйте удобный канал.</p>
+        <div class="bridge-cards">
+          <div class="bridge-card" id="bridge-vk-card">
+            <h3>ВКонтакте</h3>
+            <p id="bridge-vk-text">Общайтесь в привычном канале: ссылку на сообщество публикуем при запуске сайта. Пока ссылка не задана — уточните у оператора при подтверждении заказа.</p>
+            <a id="bridge-vk-link" class="bridge-cta" href="#" style="display:none" rel="noopener noreferrer" target="_blank">Открыть сообщество VK</a>
+          </div>
+          <div class="bridge-card" id="bridge-support-card">
+            <h3>Поддержка</h3>
+            <p id="bridge-support-text">После заявки оператор свяжется по указанному телефону. Дополнительную строку контакта (мессенджер, второй телефон) можно вывести через настройку в коде страницы — см. документацию <code>LANDING_LAUNCH_SHELL_V1</code>.</p>
+            <span id="bridge-support-extra"></span>
+          </div>
+        </div>
+        <p class="bridge-footnote">Юридические реквизиты и политика обработки данных — добавьте в подвал при публикации лендинга.</p>
+      </div>
+    </section>
+
     <section class="shell-cta-bottom" aria-labelledby="cta2-heading">
-      <h2 id="cta2-heading">Готовы закрыть вопрос с обедом?</h2>
-      <p>Один раз оформили — завтра в обед уже с едой. Вернитесь к форме и отправьте заявку.</p>
-      <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Перейти к меню</button>
+      <h2 id="cta2-heading">Осталось оформить?</h2>
+      <p>Вернитесь к форме выше: меню, контакты и одна кнопка подтверждения.</p>
+      <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Перейти к заявке</button>
     </section>
   </main>
 
@@ -367,9 +507,10 @@
     <div class="site-footer__inner">
       <div>
         <strong>Полдень</strong>
-        <p style="margin-top:4px">Обед на завтра по предзаказу.</p>
+        <p style="margin-top:4px">Предзаказ обеда на следующий день · доставка в обеденное окно.</p>
+        <p class="footer-legal">ИП/ООО, ОГРН/ИНН, оферта — вставить перед публичным запуском. <a href="#contact-bridge" style="color:inherit">Контакты</a></p>
       </div>
-      <p>© <span id="y"></span> Полдень · Доставка обедов</p>
+      <p>© <span id="y"></span> Полдень</p>
     </div>
   </footer>
 
@@ -385,10 +526,10 @@ const API_BASE = (function () {
   try {
     const fromStorage = localStorage.getItem('polden_api_base');
     const fromQuery = new URLSearchParams(location.search).get('api');
-    const raw = (fromQuery || fromStorage || 'https://api.xn----8sbke2aeleiq6a3h.xn--p1ai/api').replace(/\/$/, '');
+    const raw = (fromQuery || fromStorage || 'http://localhost:4000/api').replace(/\/$/, '');
     return raw.endsWith('/api') ? raw : raw + '/api';
   } catch (_) {
-    return 'https://api.xn----8sbke2aeleiq6a3h.xn--p1ai/api';
+    return 'http://localhost:4000/api';
   }
 })();
 function getTomorrowISO() {
@@ -432,6 +573,26 @@ const state = {
   lastAcceptedOrder:null
 };
 const $ = (id) => document.getElementById(id);
+
+/**
+ * Публичный лендинг — задать перед продакшеном (только согласованные данные).
+ * vkGroupUrl: полный URL сообщества VK.
+ * supportLineHtml: безопасная HTML-строка (например ссылка tel: — только согласованный контент).
+ *
+ * Шпаргалка: project/landing-order/POLDEN_LAUNCH_BRIDGE.md
+ */
+const POLDEN_LAUNCH_BRIDGE = {
+  vkGroupUrl: '',
+  supportLineHtml: ''
+};
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 /**
  * Атрибуция публичного заказа (минимально, без сторонних SDK).
@@ -543,17 +704,18 @@ function applyOrderingGate(){
   const phone = $('phone');
   const address = $('address');
   const comment = $('comment');
+  const hp = $('polden_hp');
 
   if (section) section.classList.toggle('order-section--locked', !allow || busy);
 
   if (banner) {
     let msg = '';
     if (state.menuLoadStatus === 'loading') {
-      msg = 'Загружаем меню из системы… Оформление заявки откроется только после подтверждения меню на завтра.';
+      msg = 'Подгружаем меню на завтра… Как только данные подтвердятся в системе, форма заказа разблокируется.';
     } else if (state.menuLoadStatus === 'degraded') {
-      msg = 'Меню на завтра в системе не подтверждено (пусто или не заполнено). Онлайн-заказ с этой страницы сейчас недоступен. Обновите страницу позже или свяжитесь с Полденью.';
+      msg = 'Меню на завтра ещё не готово в системе — онлайн-заказ временно недоступен. Загляните позже или напишите нам (раздел «Вопросы и ВКонтакте» ниже).';
     } else if (state.menuLoadStatus === 'illustrative') {
-      msg = 'Не удалось получить меню из системы. Онлайн-заказ с этой страницы недоступен: без подтверждённого меню мы не принимаем заявку. Проверьте связь и обновите страницу.';
+      msg = 'Сейчас нет связи с актуальным меню — заявку на сайте принять не можем. Проверьте интернет, обновите страницу или свяжитесь через ВК / поддержку.';
     }
     if (allow) {
       banner.classList.remove('is-visible');
@@ -567,11 +729,11 @@ function applyOrderingGate(){
   if (submit) {
     submit.disabled = !canFillForm;
     submit.setAttribute('aria-disabled', canFillForm ? 'false' : 'true');
-    if (state.submitState === 'success') submit.textContent = 'Заказ принят';
+    if (state.submitState === 'success') submit.textContent = 'Заявка принята';
     else if (state.submitState === 'submitting') submit.textContent = 'Отправляем…';
-    else submit.textContent = 'Отправить заявку';
+    else submit.textContent = 'Подтвердить заявку';
   }
-  [name, phone, address, comment].forEach((el) => {
+  [name, phone, address, comment, hp].forEach((el) => {
     if (!el) return;
     el.disabled = !canFillForm;
   });
@@ -590,7 +752,8 @@ function renderPublicMenuPreview(){
     ctx.innerHTML = '<p class="menu-preview-line">Загружаем меню и точку доставки…</p><div class="menu-preview-badges"><span class="menu-preview-badge menu-preview-badge--wait">Загрузка</span></div>';
     cardsHost.innerHTML = '<div class="menu-preview-skeleton">' + Array.from({ length: 8 }, () => '<div class="menu-preview-skel-item"></div>').join('') + '</div>';
     foot.textContent = '';
-    if (orderLine) orderLine.textContent = 'Дата доставки — завтра (' + dateHuman + '). После загрузки меню здесь и в форме ниже будет один и тот же список.';
+    if (orderLine) orderLine.textContent = 'Доставка — завтра (' + dateHuman + '). После загрузки список здесь совпадёт с формой заказа ниже.';
+    updateOrderContextBar();
     applyOrderingGate();
     return;
   }
@@ -598,14 +761,14 @@ function renderPublicMenuPreview(){
   let badgeHtml = '';
   let footText = '';
   if (state.menuLoadStatus === 'live') {
-    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--live">Как в системе</span>';
-    footText = 'Заказ возможен только по позициям без пометки «не для заказа» — они совпадают с данными CRM. Остальные строки для ориентира.';
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--live">Актуальное меню</span>';
+    footText = 'Можно заказать только позиции без пометки «не для заказа» — они совпадают с подтверждённым меню на завтра. Остальное для справки.';
   } else if (state.menuLoadStatus === 'degraded') {
-    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--degraded">Меню в системе не заполнено</span>';
-    footText = 'Меню на эту дату не подтверждено в CRM. Список ниже только для ориентира — оформить заказ на сайте нельзя, пока меню не появится в системе.';
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--degraded">Меню не подтверждено</span>';
+    footText = 'В системе пока нет подтверждённого меню на эту дату. Ниже — ориентировочный список; онлайн-заказ закрыт до появления живых данных.';
   } else {
-    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--demo">Иллюстрация · не из системы</span>';
-    footText = 'Меню из системы недоступно. Показан примерный состав — он не принимается для онлайн-заказа. Обновите страницу или свяжитесь с сервисом.';
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--demo">Нет связи с меню</span>';
+    footText = 'Не удалось загрузить меню из системы. Показан примерный набор — он не используется для заказа. Обновите страницу или напишите нам.';
   }
 
   const branchLine = state.branchName
@@ -640,22 +803,56 @@ function renderPublicMenuPreview(){
   }
 
   if (!anyCard) {
-    cardsHost.innerHTML = '<div class="menu-preview-empty" role="status">Позиций для показа нет. После подтверждения меню в системе список и заказ обновятся.</div>';
+    cardsHost.innerHTML = '<div class="menu-preview-empty" role="status">Позиций для отображения нет. Когда меню на завтра подтвердят в системе, список обновится автоматически.</div>';
   }
 
   foot.textContent = footText;
+  updateOrderContextBar();
   applyOrderingGate();
 }
 
-function escapeHtml(s){
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+function rub(n){ return `${Number(n || 0).toLocaleString('ru-RU')} ₽`; }
+
+function initLaunchBridge() {
+  try {
+    const vk = String(POLDEN_LAUNCH_BRIDGE.vkGroupUrl || '').trim();
+    const link = $('bridge-vk-link');
+    const textEl = $('bridge-vk-text');
+    if (vk && link && textEl) {
+      link.href = vk;
+      link.style.display = 'inline-flex';
+      textEl.textContent = 'Откройте сообщество ВКонтакте — там удобно написать и уточнить детали.';
+    }
+    const raw = String(POLDEN_LAUNCH_BRIDGE.supportLineHtml || '').trim();
+    const ex = $('bridge-support-extra');
+    if (raw && ex) ex.innerHTML = raw;
+  } catch (_) {}
 }
 
-function rub(n){ return `${Number(n || 0).toLocaleString('ru-RU')} ₽`; }
+function updateOrderContextBar() {
+  const bar = $('order-context-bar');
+  if (!bar) return;
+  const dateHuman = getTomorrowFormatted();
+  let chipClass = 'chip chip--wait';
+  let statusLabel = 'Загрузка меню…';
+  if (state.menuLoadStatus === 'live') {
+    chipClass = 'chip chip--live';
+    statusLabel = 'Можно оформить заказ';
+  } else if (state.menuLoadStatus === 'degraded') {
+    statusLabel = 'Меню не подтверждено — онлайн-заказ закрыт';
+  } else if (state.menuLoadStatus === 'illustrative') {
+    statusLabel = 'Нет актуального меню — онлайн-заказ закрыт';
+  }
+  const branchPart = state.branchName
+    ? '<span class="chip"><strong style="font-weight:700">Точка</strong> ' + escapeHtml(state.branchName) + '</span>'
+    : '<span class="chip">Точка…</span>';
+  bar.hidden = false;
+  bar.innerHTML =
+    branchPart +
+    '<span class="' + chipClass + '">' + escapeHtml(statusLabel) + '</span>' +
+    '<span class="chip">Доставка: <strong>' + escapeHtml(dateHuman) + '</strong> (завтра)</span>';
+}
+
 function formatPhone(digits) {
   digits = (digits || '').replace(/\D/g, '');
   if (digits.charAt(0) === '8') digits = '7' + digits.slice(1);
@@ -709,20 +906,31 @@ function renderOrderSuccessPanel(order){
   const listHtml = lines ? '<ul>' + lines + '</ul>' : '<p class="order-success-meta">Состав заказа принят сервером.</p>';
   const idHtml = order.id ? '<p class="order-success-id">ID в системе: ' + escapeHtml(String(order.id)) + '</p>' : '';
   host.innerHTML =
-    '<h3 id="order-success-title">Заказ создан</h3>' +
-    '<p class="order-success-meta">Сервер подтвердил приём заявки. Подтверждение по СМС пришлём отдельно.</p>' +
-    '<p class="order-success-meta"><strong>Дата доставки (по системе):</strong> ' + escapeHtml(dateStr) + '</p>' +
+    '<div class="success-icon" aria-hidden="true">✓</div>' +
+    '<h3 id="order-success-title">Заявка принята</h3>' +
+    '<p class="order-success-meta">Мы получили заказ в системе. Оператор свяжется с вами для подтверждения — обычно в ближайшее время в рабочие часы.</p>' +
+    '<div class="order-success-steps">' +
+    '<strong>Что дальше</strong>' +
+    '<ol style="margin:0;padding-left:1.2rem">' +
+    '<li>Сохраните номер заказа ниже (по желанию).</li>' +
+    '<li>Ждите звонка или сообщения на указанный телефон.</li>' +
+    '<li>Если что-то срочно — раздел «Вопросы и ВКонтакте» на этой странице.</li>' +
+    '</ol></div>' +
+    '<p class="order-success-meta"><strong>Дата доставки:</strong> ' + escapeHtml(dateStr) + '</p>' +
     (branchName ? '<p class="order-success-meta"><strong>Точка:</strong> ' + branchName + '</p>' : '') +
-    (cust ? '<p class="order-success-meta"><strong>Имя в заказе:</strong> ' + cust + '</p>' : '') +
-    (phoneDisp ? '<p class="order-success-meta"><strong>Телефон в заказе:</strong> ' + phoneDisp + '</p>' : '') +
-    '<p class="order-success-meta"><strong>Сумма по системе:</strong> ' + escapeHtml(rubFromMinor(order.totalAmount)) + '</p>' +
-    '<p class="order-success-meta"><strong>Принятые позиции:</strong></p>' +
+    (cust ? '<p class="order-success-meta"><strong>Имя:</strong> ' + cust + '</p>' : '') +
+    (phoneDisp ? '<p class="order-success-meta"><strong>Телефон:</strong> ' + phoneDisp + '</p>' : '') +
+    '<p class="order-success-meta"><strong>Сумма по расчёту:</strong> ' + escapeHtml(rubFromMinor(order.totalAmount)) + '</p>' +
+    '<p class="order-success-meta"><strong>Состав:</strong></p>' +
     listHtml +
     idHtml +
-    '<p class="order-success-next">Чтобы оформить ещё один заказ, сбросьте форму — предыдущий уже зафиксирован.</p>' +
-    '<button type="button" class="btn-new-order" id="order-new-btn">Оформить новый заказ</button>';
+    '<p class="order-success-next">Нужен ещё один заказ на другой адрес или состав — нажмите кнопку ниже: форма очистится, этот заказ уже в системе.</p>' +
+    '<button type="button" class="btn-new-order" id="order-new-btn">Новый заказ</button>';
   host.hidden = false;
   host.classList.add('is-visible');
+  try {
+    host.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (_) {}
   const nb = $('order-new-btn');
   if (nb) nb.onclick = () => startNewOrderAfterSuccess();
 }
@@ -740,6 +948,7 @@ function startNewOrderAfterSuccess(){
   if ($('phone')) $('phone').value = '+7';
   if ($('address')) $('address').value = '';
   if ($('comment')) $('comment').value = '';
+  if ($('polden_hp')) $('polden_hp').value = '';
   for (let p = 1; p <= 10; p++) {
     if (state.menu[p]?.confirmed) state.counters[p] = 0;
   }
@@ -752,7 +961,14 @@ function startNewOrderAfterSuccess(){
 async function api(path, opts={}){
   const res = await fetch(API_BASE + path, { headers:{ 'Content-Type':'application/json' }, ...opts });
   const json = await res.json().catch(()=>null);
-  if(!res.ok || !json?.ok) throw new Error(json?.error?.message || `Ошибка ${res.status}`);
+  if(!res.ok || !json?.ok) {
+    if (res.status === 429) throw new Error('Слишком частые запросы. Подождите минуту и попробуйте снова.');
+    const code = json?.error?.code;
+    if (code === 'SPAM_REJECTED') throw new Error('Не удалось отправить заявку. Обновите страницу и попробуйте ещё раз.');
+    if (code === 'RATE_LIMIT') throw new Error('Слишком частые запросы. Подождите немного и повторите.');
+    if (code === 'UNSUPPORTED_MEDIA_TYPE') throw new Error('Ошибка браузера при отправке. Обновите страницу.');
+    throw new Error(json?.error?.message || `Ошибка ${res.status}`);
+  }
   return json.data;
 }
 
@@ -793,8 +1009,12 @@ async function refreshQuote(){
 
 function renderSummary(){
   if (!orderingAllowed()) {
-    $('preview').innerHTML = '<li>Оформление недоступно — меню на завтра не подтверждено в системе.</li>';
+    $('preview').innerHTML = '<li>Оформление недоступно — ждём подтверждённое меню на завтра.</li>';
     $('total').textContent = '—';
+    const ta = $('total-aside');
+    if (ta) ta.textContent = '—';
+    const sub = $('preview-sum-sub');
+    if (sub) sub.textContent = '';
     return;
   }
   const items = selectedItems();
@@ -805,7 +1025,19 @@ function renderSummary(){
   items.filter((i) => i.position >= 7).forEach((i) => lines.push(`<li>Позиция ${i.position} × ${i.qty}</li>`));
 
   $('preview').innerHTML = lines.join('') || '<li>Позиции не выбраны</li>';
-  $('total').textContent = rub((q.totalAmount || 0) / 100);
+  const totalStr = rub((q.totalAmount || 0) / 100);
+  $('total').textContent = totalStr;
+  const ta = $('total-aside');
+  if (ta) ta.textContent = totalStr;
+  const sub = $('preview-sum-sub');
+  if (sub) {
+    const parts = [];
+    if ((q.comboQty || 0) > 0 && (q.comboUnitPrice || 0) > 0) {
+      parts.push('Комбо ' + q.comboQty + '× по ' + rub((q.comboUnitPrice || 0) / 100));
+    }
+    if ((q.extrasTotal || 0) > 0) parts.push('Дополнения ' + rub((q.extrasTotal || 0) / 100));
+    sub.textContent = parts.length ? parts.join(' · ') : 'Сумма по расчёту сервера после выбора позиций.';
+  }
 }
 
 function renderMenu(){
@@ -836,12 +1068,14 @@ function renderMenu(){
       const minus = document.createElement('button');
       minus.type = 'button';
       minus.textContent = '−';
+      minus.setAttribute('aria-label', 'Минус порция ' + pos);
       const val = document.createElement('span');
       val.className = 'qtyVal';
       val.textContent = String(item.confirmed ? (state.counters[pos] || 0) : 0);
       const plus = document.createElement('button');
       plus.type = 'button';
       plus.textContent = '+';
+      plus.setAttribute('aria-label', 'Плюс порция ' + pos);
 
       const gate = orderingAllowed() && item.confirmed && state.submitState !== 'submitting' && state.submitState !== 'success';
       minus.disabled = !gate;
@@ -883,7 +1117,8 @@ async function init(){
 
   try{
     const branches = await api('/public/branches');
-    const branch = branches.find((b) => /центр/i.test(String(b.name || ''))) || branches[0];
+    const byName = (re) => branches.find((b) => re.test(String(b.name || '')));
+    const branch = byName(/чебаркул/i) || byName(/центр/i) || branches[0];
     if(!branch) throw new Error('Нет доступной точки');
     state.branchId = branch.id;
     state.branchName = String(branch.name || '').trim() || 'Точка доставки';
@@ -973,7 +1208,8 @@ $('form').addEventListener('submit', async (e) => {
       comment: $('comment').value.trim() || undefined,
       paymentType: 'CARD',
       totalAmount: Math.max(0, Math.floor(Number(state.quote?.totalAmount || 0))),
-      items
+      items,
+      polden_hp: ($('polden_hp') && $('polden_hp').value) ? String($('polden_hp').value).trim() : ''
     };
     const attr = getAttributionForPayload();
     if (attr) payload.attribution = attr;
@@ -996,6 +1232,48 @@ $('form').addEventListener('submit', async (e) => {
 
 $('fixedDate').value = getTomorrowFormatted() + ' (завтра)';
 bindPhone($('phone'));
+bindPhone($('b2b-phone'));
+
+const b2bForm = $('b2b-form');
+if (b2bForm) {
+  b2bForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const st = $('b2b-status');
+    if (st) {
+      st.textContent = '';
+      st.className = 'status';
+    }
+    const headRaw = ($('b2b-headcount') && $('b2b-headcount').value) || '';
+    const headNum = headRaw === '' ? undefined : Math.floor(Number(headRaw));
+    const payload = {
+      companyName: ($('b2b-company') && $('b2b-company').value.trim()) || '',
+      contactName: ($('b2b-contact') && $('b2b-contact').value.trim()) || '',
+      phone: ($('b2b-phone') && $('b2b-phone').value) || '',
+      city: ($('b2b-city') && $('b2b-city').value.trim()) || '',
+      address: ($('b2b-address') && $('b2b-address').value.trim()) || '',
+      preferredDeliveryTime: ($('b2b-time') && $('b2b-time').value.trim()) || undefined,
+      comment: ($('b2b-comment') && $('b2b-comment').value.trim()) || undefined,
+      polden_hp: ($('b2b-polden-hp') && $('b2b-polden-hp').value) ? String($('b2b-polden-hp').value).trim() : ''
+    };
+    if (headNum != null && Number.isFinite(headNum) && headNum > 0) payload.headcountEstimate = headNum;
+    try {
+      await api('/public/corporate-leads', { method: 'POST', body: JSON.stringify(payload) });
+      if (st) {
+        st.textContent = 'Заявка отправлена. Мы свяжемся с вами.';
+        st.className = 'status ok';
+      }
+      b2bForm.reset();
+      if ($('b2b-phone')) $('b2b-phone').value = '+7';
+    } catch (err) {
+      if (st) {
+        st.textContent = err.message || 'Не удалось отправить';
+        st.className = 'status err';
+      }
+    }
+  });
+}
+
+initLaunchBridge();
 applyOrderingGate();
 init();
 </script>

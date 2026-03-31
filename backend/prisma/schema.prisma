@@ -134,6 +134,68 @@ model Branch {
   purchaseDrafts PurchaseDraft[]
   inventoryCountBatches InventoryCountBatch[]
   productionWriteoffBatches ProductionWriteoffBatch[]
+  companyAccountsDefault    CompanyAccount[] @relation("CompanyDefaultBranch")
+}
+
+/// B2B: компания (офис / команда), одна типовая точка доставки.
+model CompanyAccount {
+  id                String   @id @default(cuid())
+  companyName       String
+  city              String
+  address           String
+  notes             String?
+  /// NEW | ACTIVE | PAUSED | LOST
+  status            String   @default("NEW")
+  defaultBranchId   String?
+  defaultBranch     Branch?  @relation("CompanyDefaultBranch", fields: [defaultBranchId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  contacts          CompanyContact[]
+  corporateLeads    CorporateLead[]
+  deliveryOrders    DeliveryOrder[]
+
+  @@index([status])
+  @@index([city])
+}
+
+model CompanyContact {
+  id                     String         @id @default(cuid())
+  companyAccountId       String
+  companyAccount         CompanyAccount @relation(fields: [companyAccountId], references: [id], onDelete: Cascade)
+  name                   String
+  phone                  String
+  roleTitle              String?
+  preferredContactMethod String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  @@index([companyAccountId])
+}
+
+/// Заявка на корпоративные обеды (лид), до и после привязки к CompanyAccount.
+model CorporateLead {
+  id                    String          @id @default(cuid())
+  companyAccountId      String?
+  companyAccount        CompanyAccount? @relation(fields: [companyAccountId], references: [id], onDelete: SetNull)
+  contactName           String
+  phone                 String
+  companyName           String
+  city                  String
+  address               String
+  headcountEstimate     Int?
+  preferredDeliveryTime String?
+  comment               String?
+  /// SITE | VK | MANUAL | PHONE
+  sourceChannel         String          @default("SITE")
+  /// NEW | CONTACTED | QUOTED | PILOT | ACTIVE | LOST (ACTIVE = сконвертирован в компанию)
+  status                String          @default("NEW")
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@index([status])
+  @@index([city])
+  @@index([companyAccountId])
+  @@index([createdAt])
 }
 
 /// Черновик закупки v1 — снимок purchase-need + выбранные офферы на момент sourceEvaluatedAt.
@@ -318,10 +380,19 @@ model DeliveryOrder {
   comment         String?
   paymentType     String?
   totalAmount     Int
+  /// NEW | CONFIRMED | KITCHEN | DELIVERING | DONE | CANCELED
+  status          String              @default("NEW")
+  /// SITE | VK | MANUAL | PHONE
+  sourceChannel   String              @default("SITE")
   /// Санитизированный JSON атрибуции (UTM, путь лендинга, referrer); null если не передано
   attributionJson String?
+  companyAccountId String?
+  companyAccount   CompanyAccount?    @relation(fields: [companyAccountId], references: [id], onDelete: SetNull)
   createdAt       DateTime            @default(now())
   items           DeliveryOrderItem[]
+  leadConversion  VkLead?             @relation("VkLeadConvertedOrder")
+
+  @@index([companyAccountId])
 }
 
 model DeliveryOrderItem {
@@ -397,6 +468,11 @@ model VkConversationState {
   draftComment           String   @default("")
   /// Последний показанный MENU_DAILY (атрибуция лида)
   menuContentItemId      String?
+  /// Черновик заказа VK (структурированный поток): филиал и дата доставки (YYYY-MM-DD)
+  draftBranchId          String?
+  draftDeliveryDate      String?
+  /// JSON: массив { position, qty } после валидации по MenuDayItem
+  draftCartJson          String   @default("[]")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -405,22 +481,24 @@ model VkConversationState {
 
 /// Лид из VK-бота — не заказ; оператор оформляет DeliveryOrder отдельно.
 model VkLead {
-  id                   String   @id @default(cuid())
-  source               String   @default("vk_bot")
-  channel              String   @default("vk")
+  id                   String          @id @default(cuid())
+  source               String          @default("vk_bot")
+  channel              String          @default("vk")
   vkUserId             String
   peerId               String
   name                 String
   phone                String
   address              String
   requestedDateText    String
-  comment              String   @default("")
-  status               String   @default("NEW")
+  comment              String          @default("")
+  status               String          @default("NEW")
   rawPayloadJson       String
   menuContentItemId    String?
   attributionCampaign  String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  convertedOrderId     String?         @unique
+  convertedOrder       DeliveryOrder?  @relation("VkLeadConvertedOrder", fields: [convertedOrderId], references: [id], onDelete: SetNull)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   @@index([status])
   @@index([createdAt])

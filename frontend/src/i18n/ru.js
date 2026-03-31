@@ -19,8 +19,33 @@ export const nav = {
   purchaseDrafts: 'Черновики закупки',
   procurementBoard: 'Доска закупок',
   suppliers: 'Поставщики',
-  productionWriteoff: 'Списание произв.'
+  productionWriteoff: 'Списание произв.',
+  b2b: 'B2B · корп. обеды'
 };
+
+/** Статусы B2B-лида (корп. заявка). */
+export function corporateLeadStatusLabel(code) {
+  const m = {
+    NEW: 'Новый',
+    CONTACTED: 'На связи',
+    QUOTED: 'КП отправлено',
+    PILOT: 'Пилот',
+    ACTIVE: 'В работе (компания)',
+    LOST: 'Закрыт'
+  };
+  return m[String(code || '')] || code;
+}
+
+/** Статусы карточки компании B2B. */
+export function companyAccountStatusLabel(code) {
+  const m = {
+    NEW: 'Новая',
+    ACTIVE: 'Активна',
+    PAUSED: 'Пауза',
+    LOST: 'Потеряна'
+  };
+  return m[String(code || '')] || code;
+}
 
 /** Статусы материалов контента (значения в API — англ.). */
 export function contentStatusLabel(code) {
@@ -43,6 +68,34 @@ export function vkLeadStatusLabel(code) {
   };
   return m[String(code || '')] || code;
 }
+
+/** Статусы заказа (значения в БД — англ.). */
+export function orderStatusLabel(code) {
+  const m = {
+    NEW: 'Новый',
+    CONFIRMED: 'Подтверждён',
+    KITCHEN: 'Кухня',
+    DELIVERING: 'Доставка',
+    DONE: 'Завершён',
+    CANCELED: 'Отменён'
+  };
+  return m[String(code || '')] || code;
+}
+
+/** Канал заказа (значения в БД — англ.). */
+export function orderSourceChannelLabel(code) {
+  const m = {
+    SITE: 'Сайт',
+    VK: 'VK',
+    MANUAL: 'Вручную (CRM)',
+    PHONE: 'Телефон'
+  };
+  return m[String(code || '')] || code;
+}
+
+export const ORDER_STATUS_OPTIONS = ['NEW', 'CONFIRMED', 'KITCHEN', 'DELIVERING', 'DONE', 'CANCELED'];
+
+export const ORDER_SOURCE_CHANNEL_OPTIONS = ['SITE', 'VK', 'MANUAL', 'PHONE'];
 
 /** Статусы запускового дрилла. */
 export function launchDrillRunStatusLabel(code) {

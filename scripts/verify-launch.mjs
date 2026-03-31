@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Единая проверка базовой готовности к релизу: health → (KPI) → публичный smoke → сборка CRM frontend.
+ * Единая проверка базовой готовности к релизу: health → (KPI) → публичный smoke → hardening → сборка CRM frontend.
+ *
+ * Авторитетный лендинг: project/landing-order (от корня каталога project/). Переопределение: POLDEN_VERIFY_LANDING_ROOT.
  *
  * CLI:
  *   node scripts/verify-launch.mjs [--api-base URL] [--dry-run] [--full]
@@ -10,6 +12,7 @@
  * Env:
  *   POLDEN_VERIFY_API_BASE   база API (по умолч. http://localhost:4000/api)
  *   POLDEN_VERIFY_CRM_TOKEN заголовок X-CRM-Token (по умолч. dev, как CRM_INTERNAL_TOKEN)
+ *   POLDEN_VERIFY_LANDING_ROOT  корень авторитетного landing-order (папка с scripts/)
  *   POLDEN_SMOKE_ATTRIBUTION=1 — в режиме --full добавить attribution в теле заказа (наследие smoke)
  */
 
@@ -20,8 +23,12 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CRM_MVP_ROOT = join(__dirname, '..');
-const REPO_ROOT = join(CRM_MVP_ROOT, '..', '..');
-const SMOKE_SCRIPT = join(REPO_ROOT, 'landing-order', 'scripts', 'public-order-smoke.mjs');
+/** Корень `project/` (родитель CRM/crm-mvp). */
+const PROJECT_ROOT = join(CRM_MVP_ROOT, '..', '..');
+const AUTH_LANDING_ROOT = process.env.POLDEN_VERIFY_LANDING_ROOT
+  ? process.env.POLDEN_VERIFY_LANDING_ROOT
+  : join(PROJECT_ROOT, 'landing-order');
+const SMOKE_SCRIPT = join(AUTH_LANDING_ROOT, 'scripts', 'public-order-smoke.mjs');
 const FRONTEND_DIR = join(CRM_MVP_ROOT, 'frontend');
 
 function normalizeApiBase(raw) {
@@ -83,6 +90,83 @@ async function checkHealth(apiBase) {
   }
 }
 
+function tomorrowISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 415 на quote при неверном Content-Type; honeypot на create (если есть подтверждённое menu-day).
+ */
+async function checkPublicOrderHardening(apiBase) {
+  const quoteUrl = `${apiBase}/public/delivery-orders/quote`;
+  const r415 = await fetch(quoteUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Accept: 'application/json' },
+    body: '{}'
+  });
+  if (r415.status !== 415) {
+    throw new Error(`Ожидали 415 для quote с text/plain, получили HTTP ${r415.status}`);
+  }
+
+  const brRes = await fetch(`${apiBase}/public/branches`, { headers: { Accept: 'application/json' } });
+  const brText = await brRes.text();
+  const brJson = brText ? JSON.parse(brText) : null;
+  if (!brRes.ok || !brJson?.ok || !Array.isArray(brJson.data) || !brJson.data[0]?.id) {
+    throw new Error('Hardening: нет веток для проверки honeypot');
+  }
+  const branchId = brJson.data[0].id;
+  const date = tomorrowISO();
+  const menuRes = await fetch(
+    `${apiBase}/public/menu-day?branchId=${encodeURIComponent(branchId)}&date=${encodeURIComponent(date)}`,
+    { headers: { Accept: 'application/json' } }
+  );
+  const menuText = await menuRes.text();
+  const menuJson = menuText ? JSON.parse(menuText) : null;
+  const items = menuJson?.data?.items;
+  if (!Array.isArray(items)) {
+    throw new Error('Hardening: menu-day без items');
+  }
+  let firstPos = null;
+  for (const it of items) {
+    if (it && it.position != null && String(it.name || '').trim()) {
+      firstPos = Number(it.position);
+      break;
+    }
+  }
+  if (firstPos == null) {
+    console.log('       [SKIP] honeypot POST — нет подтверждённых позиций menu-day');
+    return;
+  }
+
+  const orderUrl = `${apiBase}/public/delivery-orders`;
+  const abuseBody = {
+    branchId,
+    deliveryDate: date,
+    customerName: 'Hardening Honeypot',
+    customerPhone: '79000000002',
+    items: [{ position: firstPos, qty: 1 }],
+    paymentType: 'CARD',
+    totalAmount: 0,
+    polden_hp: 'filled-by-verify'
+  };
+  const hpRes = await fetch(orderUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(abuseBody)
+  });
+  const hpJson = hpRes.headers.get('content-type')?.includes('json') ? await hpRes.json() : null;
+  if (hpRes.status !== 400 || hpJson?.error?.code !== 'SPAM_REJECTED') {
+    throw new Error(
+      `Honeypot: ожидали 400 SPAM_REJECTED, получили HTTP ${hpRes.status} ${JSON.stringify(hpJson || {}).slice(0, 280)}`
+    );
+  }
+}
+
 async function checkLaunchKpis(apiBase) {
   const token = process.env.POLDEN_VERIFY_CRM_TOKEN || process.env.CRM_INTERNAL_TOKEN || 'dev';
   const branchesUrl = `${apiBase}/public/branches`;
@@ -121,7 +205,7 @@ function runSmoke(apiBase, dryRun) {
   const r = spawnSync(process.execPath, args, {
     stdio: 'inherit',
     env,
-    cwd: REPO_ROOT
+    cwd: PROJECT_ROOT
   });
   if (r.status !== 0) {
     throw new Error(`smoke exited with code ${r.status ?? r.signal}`);
@@ -170,6 +254,13 @@ async function main() {
     logPass(dryRun ? 'Public smoke (dry-run: quote only)' : 'Public smoke (full: includes POST delivery-order)');
   } catch (e) {
     logFail('Public smoke-check', e);
+  }
+
+  try {
+    await checkPublicOrderHardening(apiBase);
+    logPass('Public order hardening (415 JSON + honeypot rejection when menu-day allows)');
+  } catch (e) {
+    logFail('Public order hardening', e);
   }
 
   try {

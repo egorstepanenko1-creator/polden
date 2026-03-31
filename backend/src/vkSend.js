@@ -14,9 +14,12 @@ export function vkMainKeyboardJson() {
     buttons: [
       [
         { action: { type: 'text', label: 'Меню', payload: '{}' }, color: 'secondary' },
-        { action: { type: 'text', label: 'Оставить заявку', payload: '{}' }, color: 'primary' }
+        { action: { type: 'text', label: 'Оформить заказ', payload: '{}' }, color: 'primary' }
       ],
-      [{ action: { type: 'text', label: 'Связаться с оператором', payload: '{}' }, color: 'secondary' }]
+      [
+        { action: { type: 'text', label: 'Оставить заявку', payload: '{}' }, color: 'secondary' },
+        { action: { type: 'text', label: 'Связаться с оператором', payload: '{}' }, color: 'secondary' }
+      ]
     ]
   });
 }

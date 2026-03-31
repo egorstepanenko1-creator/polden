@@ -7,7 +7,8 @@ export const VK_BOT_DEFAULT_OPERATOR_HINT =
 
 export const MSG_LEAD_CANCELLED = 'Заявка отменена. Выберите действие кнопками ниже.';
 
-export const MSG_MENU_FOOTER = 'Можно оставить заявку кнопкой ниже.';
+export const MSG_MENU_FOOTER =
+  'Заказ в боте на завтра — кнопка «Оформить заказ». Заявку оператору — «Оставить заявку».';
 
 export const MSG_MENU_EMPTY =
   'Меню на сегодня ещё не готово в CRM: нужен материал VK, тип «меню дня», статус «согласовано» или «опубликовано». Укажите заголовок и текст в черновике подписи. Загляните позже или оставьте заявку.';
@@ -35,7 +36,74 @@ export const MSG_LEAD_ACCEPTED =
   'Заявка принята. Мы свяжемся с вами. Заказ оформит оператор после уточнения.\n\nСпасибо!';
 
 export const MSG_IDLE_CHOOSE =
-  'Выберите действие:\n• Меню — актуальное меню из CRM\n• Оставить заявку\n• Связаться с оператором';
+  'Выберите действие:\n• Меню — актуальное меню из CRM\n• Оформить заказ — меню на завтра и оплата как на сайте\n• Оставить заявку — оператор оформит вручную\n• Связаться с оператором';
+
+export const MSG_ORDER_NO_BRANCHES = 'В системе нет точек доставки — онлайн-заказ из бота сейчас недоступен.';
+
+export const MSG_ORDER_FALLBACK_LEAD =
+  'Можно оставить заявку кнопкой «Оставить заявку» — оператор свяжется и оформит заказ.';
+
+export const MSG_ORDER_MENU_EMPTY =
+  'На выбранную дату в CRM нет заполненного меню (названия позиций). Онлайн-заказ из бота недоступен.';
+
+/** @param {string} branchName @param {string} date */
+export function MSG_ORDER_INTRO_SINGLE_BRANCH(branchName, date) {
+  return `Оформление заказа: точка «${branchName}», дата доставки ${date} (как «завтра» на сайте).`;
+}
+
+/** @param {string} list @param {string} date */
+export function MSG_ORDER_PICK_BRANCH(list, date) {
+  return `Оформление заказа. Дата доставки: ${date}.\nВыберите точку номером:\n${list}`;
+}
+
+export const MSG_ORDER_BRANCH_HINT = 'Ответьте одной цифрой (1, 2, …) или «Отмена».';
+
+/** @param {number} max */
+export function MSG_ORDER_BRANCH_INVALID(max) {
+  return `Нужен номер от 1 до ${max}. Или «Отмена».`;
+}
+
+/** @param {string} name @param {string} date */
+export function MSG_ORDER_BRANCH_PICKED(name, date) {
+  return `Точка: ${name}, дата доставки ${date}.`;
+}
+
+export const MSG_ORDER_ITEMS_HINT =
+  'Отправьте позиции в формате:\n• 1x2 — две порции позиции 1\n• 1 2, 3 1 — то же через пробел, можно несколько через запятую\nДиапазон позиций 1–10, количество 1–99.\n«Сброс» — очистить черновик корзины.';
+
+export const MSG_ORDER_CART_CLEARED = 'Корзина очищена. Отправьте позиции снова.';
+
+export const MSG_ORDER_REVIEW_HEADER = 'Корзина:';
+
+export const MSG_ORDER_REVIEW_CONFIRM =
+  'Отправьте «да» или «ок», чтобы продолжить (имя и телефон).\nИли новую строку позиций, чтобы заменить корзину.\n«Назад» — изменить состав.';
+
+export const MSG_ORDER_REVIEW_UNCLEAR =
+  'Не понял. Ответьте «да» для продолжения, «назад» к позициям, или пришлите новую строку позиций (1x2, 3 1, …).';
+
+export const MSG_ORDER_BACK_TO_ITEMS = 'Пришлите позиции снова (см. формат выше).';
+
+export const MSG_ORDER_ASK_NAME = 'Как вас зовут? (для заказа)';
+
+export const MSG_ORDER_ASK_COMMENT = 'Комментарий к заказу (или «-» пропустить):';
+
+export const MSG_ORDER_STATE_BROKEN = 'Сессия заказа сбита. Начните с «Оформить заказ» или оставьте заявку.';
+
+/** @param {string} err */
+export function MSG_ORDER_QUOTE_FAIL(err) {
+  return `Не получилось посчитать заказ: ${err}`;
+}
+
+/** @param {string} err */
+export function MSG_ORDER_CREATE_FAIL(err) {
+  return `Не удалось создать заказ: ${err}`;
+}
+
+/** @param {string} id @param {string} rub @param {string} lines @param {string} date */
+export function MSG_ORDER_CREATED(id, rub, lines, date) {
+  return `Заказ оформлен ✅\nНомер: ${id}\nДата доставки: ${date}\nСостав: ${lines}\nСумма: ${rub} ₽\n\nСпасибо! При необходимости мы уточним детали по телефону.`;
+}
+
 
 /** Строка со ссылкой на заказ в тексте меню */
 export const MSG_ORDER_LINK_PREFIX = 'Оформить заказ:';

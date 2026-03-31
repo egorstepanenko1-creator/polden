@@ -32,7 +32,7 @@ npm install
 npm run dev       # порт 5173, прокси /api → 4000
 ```
 
-Проверка цепочки (из корня репозитория):
+Проверка цепочки (из каталога **`project/`** репозитория; авторитетный лендинг — **`project/landing-order`**, см. `docs/AUTHORITATIVE_PATHS_AND_RELEASE_TRUTH.md`):
 
 ```bash
 node landing-order/scripts/public-order-smoke.mjs --api-base http://localhost:4000/api

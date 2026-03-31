@@ -1,8 +1,18 @@
 const TOKEN = import.meta.env.VITE_CRM_TOKEN || 'dev';
 
+/** Пусто → относительные URL `/api/...` (Vite proxy / тот же origin). Иначе абсолютный origin прод/stage API. */
+const API_BASE = (import.meta.env.VITE_API_BASE || '').trim().replace(/\/$/, '');
+
+/** @param {string} resourcePath путь вида `/api/...` */
+function apiUrl(resourcePath) {
+  const p = resourcePath.startsWith('/') ? resourcePath : `/${resourcePath}`;
+  if (!API_BASE) return p;
+  return `${API_BASE}${p}`;
+}
+
 /** @param {string} path @param {{ method?: string, body?: object }} [opts] */
 async function crmFetch(path, opts = {}) {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: opts.method || 'GET',
     headers: {
       Accept: 'application/json',
@@ -255,7 +265,7 @@ export async function fetchInventoryCountBatch(batchId) {
 }
 
 export async function fetchBranches() {
-  const res = await fetch('/api/public/branches', { headers: { Accept: 'application/json' } });
+  const res = await fetch(apiUrl('/api/public/branches'), { headers: { Accept: 'application/json' } });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json?.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
   return json.data;
@@ -263,7 +273,7 @@ export async function fetchBranches() {
 
 export async function fetchDeliveryOrders(branchId, date) {
   const q = new URLSearchParams({ branchId, date });
-  const res = await fetch(`/api/delivery-orders?${q}`, {
+  const res = await fetch(apiUrl(`/api/delivery-orders?${q}`), {
     headers: { 'X-CRM-Token': TOKEN, Accept: 'application/json' }
   });
   const json = await res.json().catch(() => null);
@@ -271,15 +281,110 @@ export async function fetchDeliveryOrders(branchId, date) {
   return json.data;
 }
 
-/** @param {string} branchId @param {number} days 1..90 */
-export async function fetchLaunchKpis(branchId, days = 7) {
-  const q = new URLSearchParams({ branchId, days: String(days) });
-  const res = await fetch(`/api/dashboard/launch-kpis?${q}`, {
+/**
+ * Поиск заказов (оператор). q короче 2 символов на сервере → [].
+ * @param {{ branchId: string, q: string, date?: string, limit?: number }} params
+ */
+export async function fetchDeliveryOrdersSearch({ branchId, q, date, limit }) {
+  const params = new URLSearchParams({ branchId, q: String(q || '').trim() });
+  if (date) params.set('date', date);
+  if (limit != null) params.set('limit', String(limit));
+  const res = await fetch(apiUrl(`/api/delivery-orders/search?${params}`), {
     headers: { 'X-CRM-Token': TOKEN, Accept: 'application/json' }
   });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json?.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
   return json.data;
+}
+
+/** Операторский заказ: тот же pricing, что и публичный POST. */
+export async function postManualDeliveryOrder(body) {
+  return crmFetch('/api/delivery-orders/manual', { method: 'POST', body });
+}
+
+export async function patchDeliveryOrderStatus(orderId, status) {
+  return crmFetch(`/api/delivery-orders/${encodeURIComponent(orderId)}/status`, {
+    method: 'PATCH',
+    body: { status }
+  });
+}
+
+/** @param {{ status?: string, q?: string }} [filters] */
+export async function fetchCompanyAccounts(filters = {}) {
+  const q = new URLSearchParams();
+  if (filters.status) q.set('status', filters.status);
+  if (filters.q) q.set('q', filters.q);
+  const qs = q.toString();
+  return crmFetch(`/api/company-accounts${qs ? `?${qs}` : ''}`);
+}
+
+/** @param {Record<string, unknown>} body */
+export async function postCompanyAccount(body) {
+  return crmFetch('/api/company-accounts', { method: 'POST', body });
+}
+
+/** @param {string} id @param {Record<string, unknown>} body */
+export async function patchCompanyAccount(id, body) {
+  return crmFetch(`/api/company-accounts/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+}
+
+/** @param {string} companyId @param {Record<string, unknown>} body */
+export async function postCompanyContact(companyId, body) {
+  return crmFetch(`/api/company-accounts/${encodeURIComponent(companyId)}/contacts`, {
+    method: 'POST',
+    body
+  });
+}
+
+/** @param {{ status?: string, city?: string, q?: string }} [filters] */
+export async function fetchCorporateLeads(filters = {}) {
+  const q = new URLSearchParams();
+  if (filters.status) q.set('status', filters.status);
+  if (filters.city) q.set('city', filters.city);
+  if (filters.q) q.set('q', filters.q);
+  const qs = q.toString();
+  return crmFetch(`/api/corporate-leads${qs ? `?${qs}` : ''}`);
+}
+
+/** @param {Record<string, unknown>} body */
+export async function postCorporateLead(body) {
+  return crmFetch('/api/corporate-leads', { method: 'POST', body });
+}
+
+/** @param {string} id @param {Record<string, unknown>} body */
+export async function patchCorporateLead(id, body) {
+  return crmFetch(`/api/corporate-leads/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+}
+
+/** @param {string} leadId @param {{ defaultBranchId?: string|null }} [body] */
+export async function postConvertCorporateLead(leadId, body = {}) {
+  return crmFetch(`/api/corporate-leads/${encodeURIComponent(leadId)}/convert-to-company`, {
+    method: 'POST',
+    body
+  });
+}
+
+/** @param {string} branchId @param {number} days 1..90 */
+export async function fetchLaunchKpis(branchId, days = 7) {
+  const q = new URLSearchParams({ branchId, days: String(days) });
+  const res = await fetch(apiUrl(`/api/dashboard/launch-kpis?${q}`), {
+    headers: { 'X-CRM-Token': TOKEN, Accept: 'application/json' }
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
+  return json.data;
+}
+
+/**
+ * Сводка операций на дату доставки + опционально сравнение с compareDate (соседний операционный день).
+ * @param {string} branchId
+ * @param {string} date YYYY-MM-DD
+ * @param {string} [compareDate]
+ */
+export async function fetchDailyOpsAnalytics(branchId, date, compareDate) {
+  const q = new URLSearchParams({ branchId, date });
+  if (compareDate) q.set('compareDate', compareDate);
+  return crmFetch(`/api/analytics/daily-ops?${q}`);
 }
 
 // --- Content Pipeline v1 (/api/content-items) ---
@@ -344,6 +449,18 @@ export async function fetchLaunchDrill(id) {
 // --- VK Leads (CRM) ---
 
 /** @param {{ status?: string }} [filters] */
+/**
+ * Сводка VK для оператора (лиды, диалоги, заказы VK на дату доставки при переданных branchId+deliveryDate).
+ * @param {{ branchId?: string, deliveryDate?: string }} [params]
+ */
+export async function fetchVkSalesSnapshot(params = {}) {
+  const q = new URLSearchParams();
+  if (params.branchId) q.set('branchId', params.branchId);
+  if (params.deliveryDate) q.set('deliveryDate', params.deliveryDate);
+  const qs = q.toString();
+  return crmFetch(`/api/vk-leads/snapshot${qs ? `?${qs}` : ''}`);
+}
+
 export async function fetchVkLeads(filters = {}) {
   const q = new URLSearchParams();
   if (filters.status) q.set('status', filters.status);

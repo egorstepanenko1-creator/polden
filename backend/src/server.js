@@ -1,10 +1,14 @@
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import { sanitizeAttribution, parseAttributionJson } from './attribution.js';
 import { computeQuoteKopeks } from './pricing.js';
 import { buildLaunchKpiPayload } from './launchKpis.js';
+import {
+  aggregateDailyOps,
+  buildCompareDeltas,
+  fetchOrdersForDailyOps
+} from './dailyOpsAnalytics.js';
 import { foodCostBreakdownKopeks } from './foodCost.js';
 import { resolveMenuDayEconomicsFields } from './menuDayItemEconomics.js';
 import { createKitchenCatalogRouter } from './kitchenCatalogRoutes.js';
@@ -37,14 +41,69 @@ import { createLaunchDrillRouter } from './launchDrillRoutes.js';
 import { createVkWebhookRouter } from './vkWebhookRoutes.js';
 import { createVkLeadRouter } from './vkLeadRoutes.js';
 import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
+import { loadOrderableMenuRows } from './vkOrderMenu.js';
+import { serverLocalTomorrowISO } from './vkOrderDates.js';
 import * as ReadinessRu from './messages/readinessRu.js';
+import {
+  logDatabaseEnvAtStartup,
+  assertProductionDatabaseHasBranches,
+  getHealthDbExtras
+} from './databaseEnv.js';
+import {
+  createDeliveryOrderFromInput,
+  normalizePhone,
+  isAllowedStatus,
+  isAllowedStatusTransition
+} from './deliveryOrderService.js';
+import { createCorsMiddleware } from './corsConfig.js';
+import { validateProductionLikeConfig, warnWeakDevConfig } from './configStartup.js';
+import {
+  createPublicOrderRateLimit,
+  requirePublicOrderJsonContentType,
+  checkPublicOrderHoneypot,
+  guardPublicOrderFieldLengths,
+  guardCorporateLeadFieldLengths
+} from './publicOrderGuards.js';
+import {
+  listCorporateLeads,
+  listCompanyAccounts,
+  createCorporateLeadCrm,
+  createCorporateLeadPublic,
+  patchCorporateLead,
+  convertLeadToCompany,
+  createCompanyAccount,
+  patchCompanyAccount,
+  addCompanyContact
+} from './corporateB2bService.js';
+
+logDatabaseEnvAtStartup();
+warnWeakDevConfig();
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
-const CRM_TOKEN = process.env.CRM_INTERNAL_TOKEN || 'dev';
+const CRM_TOKEN = (process.env.CRM_INTERNAL_TOKEN || 'dev').trim();
 
-app.use(cors());
+if (process.env.POLDEN_TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
+const publicRateWindowMs = Number(process.env.PUBLIC_ORDER_RATE_WINDOW_MS || 60_000);
+const publicQuoteRateMax = Number(process.env.PUBLIC_ORDER_QUOTE_RATE_MAX || 45);
+const publicCreateRateMax = Number(process.env.PUBLIC_ORDER_CREATE_RATE_MAX || 25);
+const publicOrderQuoteRateLimit = createPublicOrderRateLimit({
+  windowMs: publicRateWindowMs,
+  max: Number.isFinite(publicQuoteRateMax) ? publicQuoteRateMax : 45,
+  name: 'pub-quote'
+});
+const publicOrderCreateRateLimit = createPublicOrderRateLimit({
+  windowMs: publicRateWindowMs,
+  max: Number.isFinite(publicCreateRateMax) ? publicCreateRateMax : 25,
+  name: 'pub-create'
+});
+
+app.use(createCorsMiddleware());
+app.use(requirePublicOrderJsonContentType);
 app.use(express.json({ limit: '256kb' }));
 
 function ok(data) {
@@ -52,12 +111,6 @@ function ok(data) {
 }
 function fail(message, code = 'BAD_REQUEST') {
   return { ok: false, error: { message, code } };
-}
-
-function normalizePhone(raw) {
-  let d = String(raw || '').replace(/\D/g, '').replace(/^8/, '7');
-  if (!d.startsWith('7')) d = '7' + d;
-  return d.slice(0, 11);
 }
 
 function mapItems(rows) {
@@ -74,6 +127,8 @@ function toPublicOrder(order) {
     customerName: order.customerName,
     customerPhone: order.customerPhone,
     totalAmount: order.totalAmount,
+    status: order.status ?? 'NEW',
+    sourceChannel: order.sourceChannel ?? 'SITE',
     items: mapItems(order.items),
     branch: { name: order.branch.name }
   };
@@ -88,12 +143,20 @@ function toProtectedOrder(order) {
     comment: order.comment,
     paymentType: order.paymentType,
     createdAt: order.createdAt.toISOString(),
-    attribution: parseAttributionJson(order.attributionJson)
+    attribution: parseAttributionJson(order.attributionJson),
+    vkLeadId: order.leadConversion?.id ?? null,
+    companyAccountId: order.companyAccountId ?? null
   };
 }
 
-app.get('/health', (req, res) => {
-  res.json(ok({ status: 'healthy' }));
+app.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    const extras = await getHealthDbExtras(prisma);
+    res.json(ok({ status: 'healthy', dbConnected: true, ...extras }));
+  } catch (e) {
+    res.status(503).json(fail(e.message || 'unhealthy', 'UNHEALTHY'));
+  }
 });
 
 /** VK Callback API (секрет VK_WEBHOOK_SECRET), без CRM-токена. */
@@ -130,77 +193,81 @@ app.get('/api/public/menu-day', async (req, res) => {
   }
 });
 
-app.post('/api/public/delivery-orders/quote', async (req, res) => {
-  const { branchId, deliveryDate, items } = req.body || {};
-  try {
-    const q = await computeQuoteKopeks(prisma, branchId, deliveryDate, items);
-    res.json(ok(q));
-  } catch (e) {
-    res.status(400).json(fail(e.message || 'Quote failed', 'QUOTE_ERROR'));
+app.post(
+  '/api/public/delivery-orders/quote',
+  publicOrderQuoteRateLimit,
+  async (req, res) => {
+    const { branchId, deliveryDate, items } = req.body || {};
+    try {
+      const q = await computeQuoteKopeks(prisma, branchId, deliveryDate, items);
+      res.json(ok(q));
+    } catch (e) {
+      res.status(400).json(fail(e.message || 'Quote failed', 'QUOTE_ERROR'));
+    }
   }
-});
+);
 
-app.post('/api/public/delivery-orders', async (req, res) => {
-  const body = req.body || {};
-  const {
-    branchId,
-    deliveryDate,
-    customerName,
-    customerPhone,
-    items
-  } = body;
+app.post(
+  '/api/public/delivery-orders',
+  publicOrderCreateRateLimit,
+  async (req, res) => {
+    const body = req.body || {};
+    const hp = checkPublicOrderHoneypot(body);
+    if (!hp.ok) {
+      return res.status(400).json(fail(hp.message, 'SPAM_REJECTED'));
+    }
+    const lengths = guardPublicOrderFieldLengths(body);
+    if (!lengths.ok) {
+      return res.status(400).json(fail(lengths.message, 'VALIDATION'));
+    }
+    const attribution = sanitizeAttribution(body.attribution);
+    const attributionJson = attribution ? JSON.stringify(attribution) : null;
 
-  if (!branchId || !deliveryDate) {
-    return res.status(400).json(fail('branchId и deliveryDate обязательны'));
-  }
-  if (!customerName || !String(customerName).trim()) {
-    return res.status(400).json(fail('customerName обязателен'));
-  }
-  const phone = normalizePhone(customerPhone);
-  if (phone.length < 11) {
-    return res.status(400).json(fail('Некорректный телефон'));
-  }
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json(fail('items не может быть пустым'));
-  }
-
-  const attribution = sanitizeAttribution(body.attribution);
-  const attributionJson = attribution ? JSON.stringify(attribution) : null;
-
-  let quote;
-  try {
-    quote = await computeQuoteKopeks(prisma, branchId, deliveryDate, items);
-  } catch (e) {
-    return res.status(400).json(fail(e.message || 'Некорректный состав заказа', 'ORDER_ITEMS'));
-  }
-
-  const totalAmount = quote.totalAmount;
-
-  try {
-    const order = await prisma.deliveryOrder.create({
-      data: {
-        branchId: String(branchId),
-        deliveryDate: String(deliveryDate),
-        customerName: String(customerName).trim().slice(0, 200),
-        customerPhone: phone,
-        address: body.address != null ? String(body.address).trim().slice(0, 500) || null : null,
-        comment: body.comment != null ? String(body.comment).trim().slice(0, 2000) || null : null,
-        paymentType: body.paymentType != null ? String(body.paymentType).trim().slice(0, 32) || null : null,
-        totalAmount,
+    try {
+      const order = await createDeliveryOrderFromInput(prisma, {
+        branchId: body.branchId,
+        deliveryDate: body.deliveryDate,
+        customerName: lengths.trimmed.customerName,
+        customerPhone: lengths.trimmed.customerPhone,
+        items: body.items,
+        address: lengths.trimmed.address,
+        comment: lengths.trimmed.comment,
+        paymentType: body.paymentType,
         attributionJson,
-        items: {
-          create: items.map((line) => ({
-            position: Number(line.position),
-            qty: Number(line.qty)
-          }))
-        }
-      },
-      include: { branch: true, items: true }
-    });
+        status: 'NEW',
+        sourceChannel: 'SITE',
+        linkVkLeadId: null
+      });
+      res.json(ok(toPublicOrder(order)));
+    } catch (e) {
+      const code = e.code || 'CREATE_ERROR';
+      if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+      if (code === 'ORDER_ITEMS') return res.status(400).json(fail(e.message, 'ORDER_ITEMS'));
+      res.status(500).json(fail(e.message || 'Не удалось создать заказ', 'CREATE_ERROR'));
+    }
+  }
+);
 
-    res.json(ok(toPublicOrder(order)));
+/**
+ * Публичная заявка на корпоративные обеды (лид B2B). Те же rate limit / JSON / honeypot, что у заказа.
+ */
+app.post('/api/public/corporate-leads', publicOrderCreateRateLimit, async (req, res) => {
+  const body = req.body || {};
+  const hp = checkPublicOrderHoneypot(body);
+  if (!hp.ok) {
+    return res.status(400).json(fail(hp.message, 'SPAM_REJECTED'));
+  }
+  const lengths = guardCorporateLeadFieldLengths(body);
+  if (!lengths.ok) {
+    return res.status(400).json(fail(lengths.message, 'VALIDATION'));
+  }
+  try {
+    const row = await createCorporateLeadPublic(prisma, lengths.trimmed);
+    res.json(ok({ id: row.id, received: true }));
   } catch (e) {
-    res.status(500).json(fail(e.message || 'Не удалось создать заказ', 'CREATE_ERROR'));
+    const code = e.code || 'CREATE_ERROR';
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Не удалось сохранить заявку', 'INTERNAL'));
   }
 });
 
@@ -211,6 +278,181 @@ function requireCrmToken(req, res, next) {
   }
   next();
 }
+
+app.post('/api/delivery-orders/manual', requireCrmToken, async (req, res) => {
+  const body = req.body || {};
+  const attr = sanitizeAttribution(body.attribution);
+  const attributionJson = attr ? JSON.stringify(attr) : null;
+  const linkVkLeadId = body.vkLeadId != null && String(body.vkLeadId).trim() ? String(body.vkLeadId).trim() : null;
+  const linkCompanyAccountId =
+    body.companyAccountId != null && String(body.companyAccountId).trim()
+      ? String(body.companyAccountId).trim()
+      : null;
+
+  try {
+    const order = await createDeliveryOrderFromInput(prisma, {
+      branchId: body.branchId,
+      deliveryDate: body.deliveryDate,
+      customerName: body.customerName,
+      customerPhone: body.customerPhone,
+      items: body.items,
+      address: body.address,
+      comment: body.comment,
+      paymentType: body.paymentType,
+      attributionJson,
+      status: body.status != null ? String(body.status).trim() : 'NEW',
+      sourceChannel: body.sourceChannel != null ? String(body.sourceChannel).trim() : 'MANUAL',
+      linkVkLeadId,
+      linkCompanyAccountId
+    });
+    const full = await prisma.deliveryOrder.findUnique({
+      where: { id: order.id },
+      include: { branch: true, items: true, leadConversion: { select: { id: true } } }
+    });
+    res.json(ok(toProtectedOrder(full)));
+  } catch (e) {
+    const code = e.code || 'CREATE_ERROR';
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    if (code === 'ORDER_ITEMS') return res.status(400).json(fail(e.message, 'ORDER_ITEMS'));
+    if (code === 'NOT_FOUND') return res.status(404).json(fail(e.message, 'NOT_FOUND'));
+    if (code === 'CONFLICT') return res.status(409).json(fail(e.message, 'CONFLICT'));
+    res.status(500).json(fail(e.message || 'Не удалось создать заказ', 'CREATE_ERROR'));
+  }
+});
+
+app.patch('/api/delivery-orders/:id/status', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  const status = req.body?.status != null ? String(req.body.status).trim() : '';
+  if (!isAllowedStatus(status)) {
+    return res.status(400).json(fail('Недопустимый status', 'VALIDATION'));
+  }
+  try {
+    const current = await prisma.deliveryOrder.findUnique({ where: { id } });
+    if (!current) return res.status(404).json(fail('Заказ не найден', 'NOT_FOUND'));
+    if (!isAllowedStatusTransition(current.status, status)) {
+      return res.status(400).json(
+        fail(`Переход ${current.status} → ${status} не разрешён`, 'TRANSITION')
+      );
+    }
+    const order = await prisma.deliveryOrder.update({
+      where: { id },
+      data: { status },
+      include: { branch: true, items: true, leadConversion: { select: { id: true } } }
+    });
+    res.json(ok(toProtectedOrder(order)));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'update failed', 'INTERNAL'));
+  }
+});
+
+/** B2B: компании и заявки на корпоративные обеды (CRM token). */
+app.get('/api/company-accounts', requireCrmToken, async (req, res) => {
+  try {
+    const data = await listCompanyAccounts(prisma, {
+      status: req.query.status,
+      q: req.query.q
+    });
+    res.json(ok(data));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.post('/api/company-accounts', requireCrmToken, async (req, res) => {
+  try {
+    const row = await createCompanyAccount(prisma, req.body || {});
+    res.json(ok(row));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.patch('/api/company-accounts/:id', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  try {
+    const row = await patchCompanyAccount(prisma, id, req.body || {});
+    res.json(ok(row));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'NOT_FOUND') return res.status(404).json(fail(e.message, 'NOT_FOUND'));
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.post('/api/company-accounts/:id/contacts', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  try {
+    const row = await addCompanyContact(prisma, id, req.body || {});
+    res.json(ok(row));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'NOT_FOUND') return res.status(404).json(fail(e.message, 'NOT_FOUND'));
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.get('/api/corporate-leads', requireCrmToken, async (req, res) => {
+  try {
+    const data = await listCorporateLeads(prisma, {
+      status: req.query.status,
+      city: req.query.city,
+      q: req.query.q
+    });
+    res.json(ok(data));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.post('/api/corporate-leads', requireCrmToken, async (req, res) => {
+  try {
+    const row = await createCorporateLeadCrm(prisma, req.body || {});
+    res.json(ok(row));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.patch('/api/corporate-leads/:id', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  try {
+    const row = await patchCorporateLead(prisma, id, req.body || {});
+    res.json(ok(row));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'NOT_FOUND') return res.status(404).json(fail(e.message, 'NOT_FOUND'));
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+app.post('/api/corporate-leads/:id/convert-to-company', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  try {
+    const body = req.body || {};
+    const data = await convertLeadToCompany(prisma, id, {
+      defaultBranchId: body.defaultBranchId
+    });
+    res.json(ok(data));
+  } catch (e) {
+    const code = e.code || 'BAD_REQUEST';
+    if (code === 'NOT_FOUND') return res.status(404).json(fail(e.message, 'NOT_FOUND'));
+    if (code === 'CONFLICT') return res.status(409).json(fail(e.message, 'CONFLICT'));
+    if (code === 'VALIDATION') return res.status(400).json(fail(e.message, 'VALIDATION'));
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
 
 /** Живой прогон VK: env + текущее меню бота (X-CRM-Token; секреты не возвращаются). */
 app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
@@ -264,6 +506,36 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
     const menuOk = Boolean(menuDaily.present && menuDaily.hasUsableCaption);
     const vkLiveDrillReady = Boolean(vkCoreEnvOk && menuOk && menuDaily.generatedUrlPublishSafe);
 
+    const probeBranches = await prisma.branch.findMany({ orderBy: { name: 'asc' }, take: 1 });
+    const tomorrowIso = serverLocalTomorrowISO();
+    /** @type {{ deliveryDate: string, branchId: string | null, branchName: string | null, sellableSlotCount: number, ready: boolean, probeNote: string }} */
+    let vkOrderableMenu = {
+      deliveryDate: tomorrowIso,
+      branchId: null,
+      branchName: null,
+      sellableSlotCount: 0,
+      ready: false,
+      probeNote: 'Проверка по первой точке (A→Я); при нескольких точках меню может отличаться.'
+    };
+    if (probeBranches[0]) {
+      const rows = await loadOrderableMenuRows(prisma, probeBranches[0].id, tomorrowIso);
+      vkOrderableMenu = {
+        deliveryDate: tomorrowIso,
+        branchId: probeBranches[0].id,
+        branchName: probeBranches[0].name,
+        sellableSlotCount: rows.length,
+        ready: rows.length > 0,
+        probeNote: vkOrderableMenu.probeNote
+      };
+    }
+    const vkStructuredOrderReady = Boolean(vkCoreEnvOk && vkOrderableMenu.ready);
+    const vkStructuredOrderBlockers = [
+      !token.length ? ReadinessRu.BLOCKER_NO_GROUP_TOKEN : null,
+      !conf.length ? ReadinessRu.BLOCKER_NO_CONFIRMATION : null,
+      probeBranches.length === 0 ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
+      probeBranches.length > 0 && !vkOrderableMenu.ready ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
+    ].filter(Boolean);
+
     res.json(
       ok({
         vkWebhookSecretConfigured: secret.length > 0,
@@ -271,6 +543,15 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
         vkCallbackConfirmationConfigured: conf.length > 0,
         crmInternalTokenFromEnv,
         crmTokenConsistentHint: ReadinessRu.CRM_TOKEN_HINT,
+        vkOperatorDiagnostics: {
+          hints: [
+            ReadinessRu.VK_DIAG_LEAD_ACCEPTED_EXPLANATION,
+            ReadinessRu.VK_DIAG_ORDER_BUTTON_RESETS_LEAD,
+            vkStructuredOrderReady
+              ? null
+              : 'Пока vkStructuredOrderReady=false, после «Оформить заказ» бот сообщит, что меню на завтра пусто, и предложит заявку — это блокер данных CRM, не «старый код».'
+          ].filter(Boolean)
+        },
         webhookPostUrl: '/api/vk/webhook',
         publicSiteOrigin: {
           code: originMeta.code,
@@ -286,7 +567,10 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           !menuDaily.present ? ReadinessRu.BLOCKER_NO_MENU : null,
           menuDaily.present && !menuDaily.hasUsableCaption ? ReadinessRu.BLOCKER_MENU_CAPTION_SHORT : null,
           menuDaily.present && !menuDaily.generatedUrlPublishSafe ? ReadinessRu.BLOCKER_MENU_URL_UNSAFE : null
-        ].filter(Boolean)
+        ].filter(Boolean),
+        vkOrderableMenu,
+        vkStructuredOrderReady,
+        vkStructuredOrderBlockers
       })
     );
   } catch (e) {
@@ -372,7 +656,58 @@ app.get('/api/delivery-orders', requireCrmToken, async (req, res) => {
     const orders = await prisma.deliveryOrder.findMany({
       where: { branchId: String(branchId), deliveryDate: String(date) },
       orderBy: { createdAt: 'desc' },
-      include: { branch: true, items: true }
+      include: { branch: true, items: true, leadConversion: { select: { id: true } } }
+    });
+    res.json(ok(orders.map(toProtectedOrder)));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/**
+ * Операторский поиск заказов (CRM): телефон, имя, адрес, id. Query q < 2 символов → пустой массив.
+ * branchId обязателен; date опционально — фильтр по дате доставки.
+ */
+app.get('/api/delivery-orders/search', requireCrmToken, async (req, res) => {
+  const branchId = String(req.query.branchId || '').trim();
+  const dateRaw = req.query.date != null ? String(req.query.date).trim() : '';
+  const qRaw = String(req.query.q || '').trim();
+  if (!branchId) {
+    return res.status(400).json(fail('Укажите branchId'));
+  }
+  if (qRaw.length < 2) {
+    return res.json(ok([]));
+  }
+  let limit = Number(req.query.limit ?? 40);
+  if (!Number.isFinite(limit) || limit < 1) limit = 40;
+  if (limit > 80) limit = 80;
+
+  const digitQ = qRaw.replace(/\D/g, '');
+  const whereBase = {
+    branchId,
+    ...(dateRaw ? { deliveryDate: dateRaw } : {})
+  };
+
+  const orClauses = [
+    { customerName: { contains: qRaw } },
+    { address: { contains: qRaw } },
+    { id: { contains: qRaw } }
+  ];
+  if (digitQ.length >= 2) {
+    orClauses.push({ customerPhone: { contains: digitQ } });
+  } else {
+    orClauses.push({ customerPhone: { contains: qRaw } });
+  }
+
+  try {
+    const orders = await prisma.deliveryOrder.findMany({
+      where: {
+        ...whereBase,
+        OR: orClauses
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: { branch: true, items: true, leadConversion: { select: { id: true } } }
     });
     res.json(ok(orders.map(toProtectedOrder)));
   } catch (e) {
@@ -416,6 +751,41 @@ app.get('/api/dashboard/launch-kpis', requireCrmToken, async (req, res) => {
 
     const data = buildLaunchKpiPayload(orders, { days, since });
     res.json(ok(data));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/**
+ * Операционная аналитика на дату доставки (DeliveryOrder).
+ * GET /api/analytics/daily-ops?branchId=&date=&compareDate=
+ * date по умолчанию — календарный «сегодня» на сервере (локальное время).
+ */
+app.get('/api/analytics/daily-ops', requireCrmToken, async (req, res) => {
+  const branchId = req.query.branchId;
+  if (!branchId) {
+    return res.status(400).json(fail('Укажите branchId'));
+  }
+  let date = String(req.query.date || '').trim();
+  if (!date) {
+    const d = new Date();
+    date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  const compareDateRaw = String(req.query.compareDate || '').trim();
+  const compareDate = compareDateRaw || null;
+
+  try {
+    const [primaryRows, compareRows] = await Promise.all([
+      fetchOrdersForDailyOps(prisma, branchId, date),
+      compareDate ? fetchOrdersForDailyOps(prisma, branchId, compareDate) : Promise.resolve(null)
+    ]);
+    const primary = aggregateDailyOps(primaryRows, branchId, date);
+    if (!compareDate || !compareRows) {
+      return res.json(ok({ primary, compare: null, deltas: null }));
+    }
+    const compare = aggregateDailyOps(compareRows, branchId, compareDate);
+    const deltas = buildCompareDeltas(primary, compare);
+    return res.json(ok({ primary, compare, deltas }));
   } catch (e) {
     res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
   }
@@ -706,6 +1076,18 @@ app.get('/api/debug/food-cost', requireCrmToken, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`crm-mvp backend http://localhost:${PORT}`);
-});
+async function startServer() {
+  validateProductionLikeConfig();
+  try {
+    await prisma.$connect();
+    await assertProductionDatabaseHasBranches(prisma);
+  } catch (e) {
+    console.error(e?.message || e);
+    process.exit(1);
+  }
+  app.listen(PORT, () => {
+    console.log(`crm-mvp backend http://localhost:${PORT}`);
+  });
+}
+
+startServer();

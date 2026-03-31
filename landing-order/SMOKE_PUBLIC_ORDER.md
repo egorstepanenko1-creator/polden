@@ -1,5 +1,7 @@
 # Smoke-check публичного заказа (лендинг)
 
+**Авторитетная копия этого дерева:** `project/landing-order` (не `CRM/crm-mvp/landing-order`). Подробности: `CRM/crm-mvp/docs/AUTHORITATIVE_PATHS_AND_RELEASE_TRUTH.md`.
+
 Повторяемая проверка базовой цепочки, от которой зависит `landing-order/index.html`:
 
 1. `GET /health` — доступность API (база без `/api`).

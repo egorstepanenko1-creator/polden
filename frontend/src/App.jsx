@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchBranches, fetchDeliveryOrders, fetchLaunchKpis } from './api.js';
+import {
+  fetchBranches,
+  fetchDailyOpsAnalytics,
+  fetchDeliveryOrders,
+  fetchLaunchKpis,
+  patchDeliveryOrderStatus
+} from './api.js';
 import { localTodayISO, localTomorrowISO } from './dates.js';
+import { OperatorDeliveryWorkspace } from './OperatorDeliveryWorkspace.jsx';
 import { rubKopeks } from './i18n/format.js';
 import { nav } from './i18n/ru.js';
 import { KitchenLabPage } from './KitchenLabPage.jsx';
@@ -18,17 +25,9 @@ import { ProcurementBoardPage } from './ProcurementBoardPage.jsx';
 import { ContentPipelinePage } from './ContentPipelinePage.jsx';
 import { LaunchDrillPage } from './LaunchDrillPage.jsx';
 import { VkLeadsPage } from './VkLeadsPage.jsx';
-
-function formatAttributionLabel(attribution) {
-  if (!attribution || typeof attribution !== 'object') return null;
-  const parts = [];
-  if (attribution.utm_source) parts.push(String(attribution.utm_source));
-  if (attribution.utm_campaign && String(attribution.utm_campaign) !== String(attribution.utm_source)) {
-    parts.push(String(attribution.utm_campaign));
-  }
-  if (parts.length === 0 && attribution.landing_path) parts.push(String(attribution.landing_path));
-  return parts.length ? parts.join(' · ') : null;
-}
+import { OrderQuickCreateModal } from './OrderQuickCreateModal.jsx';
+import { DailyOpsPanel } from './DailyOpsPanel.jsx';
+import { B2BWorkspacePage } from './B2BWorkspacePage.jsx';
 
 function cardStyle() {
   return {
@@ -72,6 +71,7 @@ function CrmTopNav({ active, onNavigate }) {
       {tab('contentPipeline', nav.content)}
       {tab('launchDrill', nav.launchDrill)}
       {tab('vkLeads', nav.vkLeads)}
+      {tab('b2b', nav.b2b)}
       {tab('kitchen', nav.kitchen)}
       {tab('menuDay', nav.menuDay)}
       {tab('dayEconomics', nav.dayEconomics)}
@@ -103,6 +103,30 @@ export function App() {
   const [kpiLoading, setKpiLoading] = useState(false);
   const [kpiErr, setKpiErr] = useState('');
 
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [orderPrefill, setOrderPrefill] = useState(null);
+  const [statusBusyId, setStatusBusyId] = useState(null);
+  const [statusErr, setStatusErr] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchErr, setSearchErr] = useState('');
+  const [searchScoped, setSearchScoped] = useState(true);
+
+  const [dailyOps, setDailyOps] = useState(null);
+  const [dailyOpsLoading, setDailyOpsLoading] = useState(false);
+  const [dailyOpsErr, setDailyOpsErr] = useState('');
+
+  const todayStr = localTodayISO();
+  const tomorrowStr = localTomorrowISO();
+
+  useEffect(() => {
+    function onOpenOrderForm(ev) {
+      setOrderPrefill(ev.detail || null);
+      setOrderModalOpen(true);
+    }
+    window.addEventListener('polden-open-order-form', onOpenOrderForm);
+    return () => window.removeEventListener('polden-open-order-form', onOpenOrderForm);
+  }, []);
+
   useEffect(() => {
     fetchBranches()
       .then((b) => {
@@ -112,17 +136,45 @@ export function App() {
       .catch((e) => setErr(e.message || String(e)));
   }, []);
 
-  const loadOrders = () => {
+  function loadDailyOps() {
+    if (!branchId) return;
+    const compareDate = date === todayStr ? tomorrowStr : date === tomorrowStr ? todayStr : null;
+    setDailyOpsLoading(true);
+    setDailyOpsErr('');
+    fetchDailyOpsAnalytics(branchId, date, compareDate || undefined)
+      .then(setDailyOps)
+      .catch((e) => setDailyOpsErr(e.message || String(e)))
+      .finally(() => setDailyOpsLoading(false));
+  }
+
+  const loadOrders = (selectionIdToKeep = null) => {
     if (!branchId) return;
     setLoading(true);
     setErr('');
     fetchDeliveryOrders(branchId, date)
       .then((data) => {
-        setOrders(Array.isArray(data) ? data : []);
-        setSelected(null);
+        if (!Array.isArray(data)) {
+          setErr(`Ответ delivery-orders не массив (${typeof data}). Проверьте API и VITE_API_BASE.`);
+          setOrders([]);
+          setSelected(null);
+          return;
+        }
+        setOrders(data);
+        if (selectionIdToKeep) {
+          const found = data.find((o) => o.id === selectionIdToKeep);
+          setSelected(found || null);
+        } else {
+          setSelected(null);
+        }
+        if (import.meta.env.DEV) {
+          console.debug('[polden] delivery-orders', { branchId, date, count: data.length });
+        }
       })
       .catch((e) => setErr(e.message || String(e)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        loadDailyOps();
+      });
   };
 
   useEffect(() => {
@@ -141,10 +193,47 @@ export function App() {
 
   const title = useMemo(() => nav.brand, []);
 
-  const todayStr = localTodayISO();
-  const tomorrowStr = localTomorrowISO();
   const delivToday = kpi?.byDeliveryDate?.find((r) => r.deliveryDate === todayStr);
   const delivTomorrow = kpi?.byDeliveryDate?.find((r) => r.deliveryDate === tomorrowStr);
+
+  const orderModal = (
+    <OrderQuickCreateModal
+      open={orderModalOpen}
+      onClose={() => {
+        setOrderModalOpen(false);
+        setOrderPrefill(null);
+      }}
+      branches={branches}
+      defaultBranchId={branchId}
+      prefill={orderPrefill}
+      onSuccess={() => {
+        setSearchResults(null);
+        loadOrders();
+        setOrderModalOpen(false);
+        setOrderPrefill(null);
+      }}
+    />
+  );
+
+  function mergeOrderEverywhere(updated) {
+    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setSearchResults((prev) => (prev == null ? null : prev.map((o) => (o.id === updated.id ? updated : o))));
+    setSelected((s) => (s?.id === updated.id ? updated : s));
+  }
+
+  async function patchOrderStatus(orderId, status) {
+    setStatusErr('');
+    setStatusBusyId(orderId);
+    try {
+      const updated = await patchDeliveryOrderStatus(orderId, status);
+      mergeOrderEverywhere(updated);
+      loadDailyOps();
+    } catch (e) {
+      setStatusErr(e.message || String(e));
+    } finally {
+      setStatusBusyId(null);
+    }
+  }
 
   if (crmView === 'contentPipeline') {
     return (
@@ -166,10 +255,25 @@ export function App() {
 
   if (crmView === 'vkLeads') {
     return (
-      <div>
-        <CrmTopNav active="vkLeads" onNavigate={setCrmView} />
-        <VkLeadsPage />
-      </div>
+      <>
+        {orderModal}
+        <div>
+          <CrmTopNav active="vkLeads" onNavigate={setCrmView} />
+          <VkLeadsPage branchId={branchId} deliveryDate={date} />
+        </div>
+      </>
+    );
+  }
+
+  if (crmView === 'b2b') {
+    return (
+      <>
+        {orderModal}
+        <div>
+          <CrmTopNav active="b2b" onNavigate={setCrmView} />
+          <B2BWorkspacePage branches={branches} defaultBranchId={branchId} />
+        </div>
+      </>
     );
   }
 
@@ -282,7 +386,9 @@ export function App() {
   }
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 1040, margin: '0 auto', padding: 24 }}>
+    <>
+      {orderModal}
+      <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 960, margin: '0 auto', padding: '16px 14px 32px' }}>
       <nav
         style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}
         aria-label="Разделы CRM"
@@ -298,6 +404,9 @@ export function App() {
         </button>
         <button type="button" onClick={() => setCrmView('vkLeads')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
           {nav.vkLeads}
+        </button>
+        <button type="button" onClick={() => setCrmView('b2b')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
+          {nav.b2b}
         </button>
         <button type="button" onClick={() => setCrmView('kitchen')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
           {nav.kitchen}
@@ -341,8 +450,62 @@ export function App() {
         Заголовок <code>X-CRM-Token</code> → <code>VITE_CRM_TOKEN</code>
       </p>
 
-      {/* ——— Launch KPI ——— */}
-      <section style={{ marginBottom: 32 }} aria-labelledby="launch-kpi-heading">
+      <DailyOpsPanel
+        primary={dailyOps?.primary}
+        compare={dailyOps?.compare}
+        deltas={dailyOps?.deltas}
+        compareDateLabel={dailyOps?.compare?.deliveryDate || null}
+        loading={dailyOpsLoading}
+        err={dailyOpsErr}
+      />
+
+      <OperatorDeliveryWorkspace
+        branches={branches}
+        branchId={branchId}
+        onBranchChange={setBranchId}
+        date={date}
+        onDateChange={setDate}
+        todayIso={todayStr}
+        tomorrowIso={tomorrowStr}
+        orders={orders}
+        searchResults={searchResults}
+        onSearchResults={setSearchResults}
+        selected={selected}
+        onSelect={setSelected}
+        onPatchStatus={patchOrderStatus}
+        statusBusyId={statusBusyId}
+        searchErr={searchErr}
+        onSearchErr={setSearchErr}
+        onOpenCreate={() => {
+          setOrderPrefill(null);
+          setOrderModalOpen(true);
+        }}
+        onReload={() => loadOrders()}
+        loading={loading}
+        listErr={err}
+        searchScoped={searchScoped}
+        onSearchScopedChange={setSearchScoped}
+      />
+
+      {statusErr ? (
+        <div style={{ color: '#c62828', margin: '12px 0', fontSize: 14 }} role="alert">
+          {statusErr}
+        </div>
+      ) : null}
+
+      {import.meta.env.DEV && !loading && orders.length === 0 && !err && !searchResults ? (
+        <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+          Dev: нет заказов на дату — проверьте VITE_API_BASE и VITE_CRM_TOKEN.
+        </p>
+      ) : null}
+
+      {/* KPI свёрнут по умолчанию — оператор сначала видит заказы */}
+      <details style={{ marginBottom: 28, border: '1px solid #e0e0e0', borderRadius: 12, padding: '8px 14px' }}>
+        <summary style={{ fontSize: '1.05rem', fontWeight: 700, cursor: 'pointer', padding: '8px 0' }}>
+          KPI и сводки запуска
+        </summary>
+        <div style={{ paddingTop: 8 }}>
+      <section style={{ marginBottom: 16 }} aria-labelledby="launch-kpi-heading">
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 14 }}>
           <h2 id="launch-kpi-heading" style={{ margin: 0, fontSize: '1.25rem' }}>
             Запуск · KPI
@@ -520,112 +683,9 @@ export function App() {
           </>
         ) : null}
       </section>
-
-      {/* ——— Заказы по дате доставки ——— */}
-      <section aria-labelledby="orders-heading">
-        <h2 id="orders-heading" style={{ fontSize: '1.15rem' }}>
-          Заказы по дате доставки
-        </h2>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 16 }}>
-          <label>
-            Точка
-            <select
-              value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              style={{ display: 'block', marginTop: 4, minWidth: 220, padding: 8 }}
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Дата доставки
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ display: 'block', marginTop: 4, padding: 8 }} />
-          </label>
-          <button type="button" onClick={loadOrders} disabled={loading || !branchId} style={{ padding: '8px 16px' }}>
-            {loading ? 'Загрузка…' : 'Обновить'}
-          </button>
         </div>
-
-        {err ? (
-          <div style={{ color: '#b00020', marginBottom: 12 }} role="alert">
-            {err}
-          </div>
-        ) : null}
-
-        <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr', gap: 16 }}>
-          <div>
-            <h3 style={{ fontSize: '1.05rem' }}>Список</h3>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {orders.map((o) => {
-                const label = formatAttributionLabel(o.attribution);
-                return (
-                  <li key={o.id} style={{ marginBottom: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setSelected(o)}
-                      style={{
-                        textAlign: 'left',
-                        width: '100%',
-                        padding: 12,
-                        border: '1px solid #ddd',
-                        borderRadius: 8,
-                        background: selected?.id === o.id ? '#f0f7ff' : '#fff',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <strong>{o.customerName}</strong> · {o.customerPhone}
-                      <div style={{ fontSize: 13, color: '#444', marginTop: 4 }}>
-                        {(o.totalAmount / 100).toLocaleString('ru-RU')} ₽ · поз.: {o.items?.map((i) => `${i.position}×${i.qty}`).join(', ')}
-                      </div>
-                      {label ? <div style={{ fontSize: 12, color: '#2e6b4f', marginTop: 6 }}>Источник: {label}</div> : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {orders.length === 0 && !loading ? <p style={{ color: '#666' }}>Нет заказов на эту дату.</p> : null}
-          </div>
-
-          {selected ? (
-            <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16 }}>
-              <h3 style={{ fontSize: '1.05rem', marginTop: 0 }}>Деталь</h3>
-              <p>
-                <strong>ID:</strong> {selected.id}
-              </p>
-              <p>
-                <strong>Клиент:</strong> {selected.customerName}, {selected.customerPhone}
-              </p>
-              <p>
-                <strong>Адрес:</strong> {selected.address || '—'}
-              </p>
-              <p>
-                <strong>Комментарий:</strong> {selected.comment || '—'}
-              </p>
-              <p>
-                <strong>Сумма:</strong> {(selected.totalAmount / 100).toLocaleString('ru-RU')} ₽
-              </p>
-              {selected.attribution && Object.keys(selected.attribution).length > 0 ? (
-                <div style={{ marginTop: 16 }}>
-                  <strong>Атрибуция</strong>
-                  <ul style={{ fontSize: 14 }}>
-                    {Object.entries(selected.attribution).map(([k, v]) => (
-                      <li key={k}>
-                        <code>{k}</code>: {String(v)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p style={{ color: '#666' }}>Атрибуция не сохранена.</p>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </section>
+      </details>
     </div>
+    </>
   );
 }

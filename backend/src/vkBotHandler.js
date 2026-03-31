@@ -1,10 +1,11 @@
 /**
- * Обработка входящих сообщений VK (лид-форма, меню из CRM).
+ * Обработка входящих сообщений VK (лид-форма, меню из CRM, структурированный заказ).
  */
 
 import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
 import { vkMainKeyboardJson, vkSendMessage } from './vkSend.js';
 import * as VkMsg from './messages/vkBotRu.js';
+import { processVkStructuredOrderFlow, startVkStructuredOrder, isStructuredOrderState } from './vkOrderHandler.js';
 
 const STATES = {
   IDLE: 'IDLE',
@@ -35,6 +36,16 @@ function normCmd(s) {
 const KB = vkMainKeyboardJson();
 
 const OPERATOR_HINT = process.env.VK_OPERATOR_CONTACT_TEXT || VkMsg.VK_BOT_DEFAULT_OPERATOR_HINT;
+
+function isLeadCollectionState(s) {
+  return (
+    s === STATES.COLLECT_NAME ||
+    s === STATES.COLLECT_PHONE ||
+    s === STATES.COLLECT_ADDRESS ||
+    s === STATES.COLLECT_DATE ||
+    s === STATES.COLLECT_COMMENT
+  );
+}
 
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
@@ -69,14 +80,42 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
         draftPhone: '',
         draftAddress: '',
         draftRequestedDateText: '',
-        draftComment: ''
+        draftComment: '',
+        draftBranchId: null,
+        draftDeliveryDate: null,
+        draftCartJson: '[]'
       }
     });
     await vkSendMessage(peerId, VkMsg.MSG_LEAD_CANCELLED, { keyboardJson: KB });
     return;
   }
 
-  // Команды из IDLE (и дубли во время сбора — переключение)
+  const so = await processVkStructuredOrderFlow(prisma, {
+    peerId,
+    vkUserId,
+    text,
+    cmd,
+    state,
+    rawObjectForAudit,
+    normCmd,
+    vkSendMessage,
+    keyboardJson: KB,
+    operatorHint: OPERATOR_HINT
+  });
+  if (so.handled) return;
+
+  // Перечитать состояние после возможных обновлений внутри structured (не должно сработать для IDLE)
+  if (isStructuredOrderState(state.currentState)) {
+    state = await prisma.vkConversationState.findUnique({ where: { peerId } });
+    if (!state) return;
+  }
+
+  const wantStructuredOrder =
+    text === 'Оформить заказ' ||
+    cmd.includes('оформить заказ') ||
+    cmd === 'сделать заказ' ||
+    cmd.includes('сделать заказ');
+
   const wantMenu =
     cmd === 'меню' ||
     cmd === 'menu' ||
@@ -93,7 +132,29 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
     text === 'Связаться с оператором' ||
     cmd.includes('связаться с оператором');
 
-  if (state.currentState === STATES.IDLE || wantMenu || wantLead || wantOperator) {
+  if (state.currentState === STATES.IDLE || wantMenu || wantLead || wantOperator || wantStructuredOrder) {
+    // «Оформить заказ» раньше срабатывало только из IDLE: из сценария лида текст шёл в имя/телефон и
+    // заканчивался MSG_LEAD_ACCEPTED — сбрасываем черновик заявки и открываем структурированный заказ.
+    if (wantStructuredOrder && (state.currentState === STATES.IDLE || isLeadCollectionState(state.currentState))) {
+      if (isLeadCollectionState(state.currentState)) {
+        await prisma.vkConversationState.update({
+          where: { peerId },
+          data: {
+            currentState: STATES.IDLE,
+            draftName: '',
+            draftPhone: '',
+            draftAddress: '',
+            draftRequestedDateText: '',
+            draftComment: '',
+            draftBranchId: null,
+            draftDeliveryDate: null,
+            draftCartJson: '[]'
+          }
+        });
+      }
+      await startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMessage, KB);
+      return;
+    }
     if (wantMenu) {
       const item = await getCurrentVkMenuDailyItem(prisma);
       let reply;
@@ -213,7 +274,10 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
           draftPhone: '',
           draftAddress: '',
           draftRequestedDateText: '',
-          draftComment: ''
+          draftComment: '',
+          draftBranchId: null,
+          draftDeliveryDate: null,
+          draftCartJson: '[]'
         }
       });
 
