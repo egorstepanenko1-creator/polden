@@ -1,0 +1,428 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- Kitchen economics v1 (see docs/KITCHEN_ECONOMICS_V1_SPEC.md) ---
+
+model Unit {
+  id          String @id @default(cuid())
+  code        String @unique
+  displayName String
+
+  ingredientsDefault  Ingredient[]       @relation("IngredientDefaultUnit")
+  ingredientPrices    IngredientPrice[]
+  dishIngredientLines DishIngredient[]
+  stockMovements      StockMovement[]
+  supplierOffers      SupplierIngredientOffer[]
+  purchaseDraftLines  PurchaseDraftLine[]
+  inventoryCountLines InventoryCountLine[]
+}
+
+model Ingredient {
+  id            String  @id @default(cuid())
+  name          String
+  sku           String?
+  active        Boolean @default(true)
+  defaultUnitId String
+  defaultUnit   Unit    @relation("IngredientDefaultUnit", fields: [defaultUnitId], references: [id])
+
+  prices    IngredientPrice[]
+  dishLines DishIngredient[]
+  stockMovements StockMovement[]
+  supplierOffers SupplierIngredientOffer[]
+  purchaseDraftLines PurchaseDraftLine[]
+  inventoryCountLines InventoryCountLine[]
+}
+
+/// Supplier foundation v1 — без заказов/приёмок; только справочник и ценовые офферы.
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  isActive  Boolean  @default(true)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offers             SupplierIngredientOffer[]
+  purchaseDraftLines PurchaseDraftLine[]
+}
+
+/// Упаковка у поставщика: цена за упаковку в копейках; интервал действия [effectiveFrom, effectiveTo) если effectiveTo задан.
+model SupplierIngredientOffer {
+  id                 String    @id @default(cuid())
+  supplierId         String
+  supplier           Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  ingredientId       String
+  ingredient         Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  unitId             String
+  unit               Unit        @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  packQuantity       Decimal
+  pricePerPackKopeks Int
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  note               String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([supplierId])
+  @@index([ingredientId, unitId, effectiveFrom])
+}
+
+/// Price per one `unitId` in kopeks; time-bounded (spec: validFrom/validTo → effectiveFrom/effectiveTo).
+model IngredientPrice {
+  id                 String    @id @default(cuid())
+  ingredientId       String
+  ingredient         Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  unitId             String
+  unit               Unit        @relation(fields: [unitId], references: [id])
+  pricePerUnitKopeks Int
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+
+  @@index([ingredientId, unitId, effectiveFrom])
+}
+
+model Dish {
+  id        String  @id @default(cuid())
+  name      String
+  active    Boolean @default(true)
+  category  String?
+  versions  DishVersion[]
+}
+
+model DishVersion {
+  id            String   @id @default(cuid())
+  dishId        String
+  dish          Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  /// draft | published
+  status        String
+  notes         String?
+  createdAt     DateTime @default(now())
+  lines         DishIngredient[]
+  menuDayItems  MenuDayItem[]
+
+  @@unique([dishId, versionNumber])
+}
+
+model DishIngredient {
+  id            String      @id @default(cuid())
+  dishVersionId String
+  dishVersion   DishVersion @relation(fields: [dishVersionId], references: [id], onDelete: Cascade)
+  ingredientId  String
+  ingredient    Ingredient  @relation(fields: [ingredientId], references: [id])
+  quantity      Decimal
+  unitId        String
+  unit          Unit        @relation(fields: [unitId], references: [id])
+
+  @@index([dishVersionId])
+}
+
+// --- Existing CRM (ordering) ---
+
+model Branch {
+  id        String            @id @default(cuid())
+  name      String
+  orders    DeliveryOrder[]
+  menuItems MenuDayItem[]
+  stockMovements StockMovement[]
+  purchaseDrafts PurchaseDraft[]
+  inventoryCountBatches InventoryCountBatch[]
+  productionWriteoffBatches ProductionWriteoffBatch[]
+}
+
+/// Черновик закупки v1 — снимок purchase-need + выбранные офферы на момент sourceEvaluatedAt.
+model PurchaseDraft {
+  id                 String   @id @default(cuid())
+  branchId           String
+  branch             Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  date               String
+  /// DRAFT — единственное значение в v1 (тип черновика закупки)
+  status             String   @default("DRAFT")
+  note               String?
+  sourceEvaluatedAt  DateTime
+  /// NONE | RECEIVED_PARTIAL | RECEIVED_FULL — по накопленной приёмке в базовых единицах
+  receiptStatus      String   @default("NONE")
+  lastReceivedAt     DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  lines              PurchaseDraftLine[]
+
+  @@index([branchId, date])
+}
+
+/// Строка черновика: значения зафиксированы при генерации (изменение каталога не пересчитывает).
+model PurchaseDraftLine {
+  id                     String   @id @default(cuid())
+  purchaseDraftId        String
+  purchaseDraft          PurchaseDraft @relation(fields: [purchaseDraftId], references: [id], onDelete: Cascade)
+  ingredientId           String
+  ingredient             Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  unitId                 String
+  unit                   Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  purchaseNeedQty        Decimal
+  supplierId             String?
+  supplier               Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  /// Ссылка на оффер на момент генерации (без FK — оффер могут удалить/сменить).
+  supplierOfferId        String?
+  packQuantity           Decimal?
+  pricePerPackKopeks     Int?
+  estimatedPacksNeeded   Int?
+  estimatedBuyCostKopeks Int?
+  /// Накопленно принято в базовых единицах (сумма всех RECEIPT по этому черновику)
+  receivedBaseQtyTotal   Decimal  @default(0)
+  createdAt              DateTime @default(now())
+
+  @@index([purchaseDraftId])
+}
+
+/// Stock truth v1 — journal only; balance = Σ signed(quantity by movementType).
+model StockMovement {
+  id           String   @id @default(cuid())
+  branchId     String
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  unitId       String
+  unit         Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  /// OPENING_BALANCE | RECEIPT | ADJUSTMENT_IN | ADJUSTMENT_OUT | WASTE | PRODUCTION_CONSUMPTION
+  movementType String
+  /// Magnitude always positive; sign from movementType.
+  quantity     Decimal
+  occurredAt   DateTime
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([branchId, ingredientId, occurredAt])
+  @@index([branchId, occurredAt])
+
+  /// Связь 1:1 со строкой инвентаризации (если движение создано при сверке).
+  inventoryCountLine InventoryCountLine?
+  productionWriteoffMovementLinks ProductionWriteoffMovementLink[]
+}
+
+/// Партия инвентаризации v1 — аудит; остатки по-прежнему только из StockMovement.
+model InventoryCountBatch {
+  id                 String   @id @default(cuid())
+  branchId           String
+  branch             Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+  /// Момент проводки сверки (occurredAt движений).
+  reconciledAt       DateTime
+  note               String?
+  rowCount           Int
+  changedLineCount   Int
+  adjustmentInCount  Int
+  adjustmentOutCount Int
+  lines              InventoryCountLine[]
+
+  @@index([branchId, reconciledAt])
+}
+
+/// Снимок строки на момент сверки + ссылка на созданное движение (если было).
+model InventoryCountLine {
+  id                    String              @id @default(cuid())
+  inventoryCountBatchId String
+  inventoryCountBatch   InventoryCountBatch @relation(fields: [inventoryCountBatchId], references: [id], onDelete: Cascade)
+  ingredientId          String
+  ingredient            Ingredient          @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  unitId                String
+  unit                  Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  systemBalanceQty      Decimal
+  countedQty            Decimal
+  differenceQty         Decimal
+  movementType          String?
+  adjustmentQty         Decimal?
+  stockMovementId       String?             @unique
+  stockMovement         StockMovement?      @relation(fields: [stockMovementId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryCountBatchId])
+}
+
+model MenuDayItem {
+  id       String @id @default(cuid())
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  date     String
+  position Int
+  name     String
+  price    Int
+
+  /// Optional link to published dish version; snapshot taken on protected upsert only.
+  dishVersionId String?
+  dishVersion   DishVersion? @relation(fields: [dishVersionId], references: [id], onDelete: SetNull)
+
+  /// Frozen food cost (kopeks) at foodCostSnapshottedAt; null if no dishVersion linked.
+  foodCostKopeksSnapshot Int?
+  foodCostSnapshottedAt  DateTime?
+
+  @@unique([branchId, date, position])
+  productionWriteoffLines ProductionWriteoffLine[]
+}
+
+/// Партия списания по производству v1 — аудит; остатки только из StockMovement.
+model ProductionWriteoffBatch {
+  id                     String   @id @default(cuid())
+  branchId               String
+  branch                 Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  date                   String
+  createdAt              DateTime @default(now())
+  note                   String?
+  affectedPositionsCount Int
+  createdMovementCount   Int
+  lines                  ProductionWriteoffLine[]
+  movementLinks          ProductionWriteoffMovementLink[]
+
+  @@index([branchId, date])
+}
+
+model ProductionWriteoffLine {
+  id                        String                  @id @default(cuid())
+  productionWriteoffBatchId String
+  batch                     ProductionWriteoffBatch @relation(fields: [productionWriteoffBatchId], references: [id], onDelete: Cascade)
+  menuDayItemId             String
+  menuDayItem               MenuDayItem             @relation(fields: [menuDayItemId], references: [id], onDelete: Restrict)
+  position                  Int
+  writeoffQty               Decimal
+  dishVersionId             String?
+  createdAt                 DateTime                @default(now())
+
+  @@index([productionWriteoffBatchId])
+  @@index([menuDayItemId])
+}
+
+/// Связь партии списания с созданными движениями PRODUCTION_CONSUMPTION.
+model ProductionWriteoffMovementLink {
+  id                        String                  @id @default(cuid())
+  productionWriteoffBatchId String
+  batch                     ProductionWriteoffBatch @relation(fields: [productionWriteoffBatchId], references: [id], onDelete: Cascade)
+  stockMovementId           String                  @unique
+  stockMovement             StockMovement           @relation(fields: [stockMovementId], references: [id], onDelete: Restrict)
+
+  @@index([productionWriteoffBatchId])
+}
+
+model DeliveryOrder {
+  id              String              @id @default(cuid())
+  branchId        String
+  branch          Branch              @relation(fields: [branchId], references: [id])
+  deliveryDate    String
+  customerName    String
+  customerPhone   String
+  address         String?
+  comment         String?
+  paymentType     String?
+  totalAmount     Int
+  /// Санитизированный JSON атрибуции (UTM, путь лендинга, referrer); null если не передано
+  attributionJson String?
+  createdAt       DateTime            @default(now())
+  items           DeliveryOrderItem[]
+}
+
+model DeliveryOrderItem {
+  id      String        @id @default(cuid())
+  orderId String
+  order   DeliveryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  position Int
+  qty     Int
+}
+
+/// Контент-пайплайн v1 (VK-first) — планирование ссылок с UTM; не источник заказов.
+model ContentItem {
+  id           String    @id @default(cuid())
+  title        String
+  /// VK | …
+  channel      String    @default("VK")
+  contentType  String    @default("post")
+  /// IDEA | DRAFT | APPROVED | PUBLISHED
+  status       String    @default("IDEA")
+  publishDate  DateTime?
+  captionDraft String    @default("")
+  creativeNote String?
+  landingPath  String?
+  targetUrl    String?
+  utmSource    String    @default("vk")
+  utmMedium    String?
+  utmCampaign  String?
+  utmContent   String?
+  generatedUrl String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  launchDrillRecords LaunchDrillRecord[]
+
+  @@index([status])
+  @@index([channel])
+  @@index([publishDate])
+}
+
+/// Ручной запусковый drill: фиксация content → URL → заказ → performance (аудит, без автоматизации).
+model LaunchDrillRecord {
+  id                         String      @id @default(cuid())
+  contentItemId              String
+  contentItem                ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Restrict)
+  expectedGeneratedUrl       String
+  /// JSON: { code, effectiveOrigin, isSafeForPublish } на момент старта
+  originStatusAtRun          String
+  /// STARTED → затем SUCCESS | FAILED | PARTIAL
+  runStatus                  String      @default("STARTED")
+  startedAt                  DateTime    @default(now())
+  completedAt                DateTime?
+  observedOrderId            String?
+  observedRevenueKopeks      Int?
+  observedAttributionSummary String?
+  note                       String?
+  createdAt                  DateTime    @default(now())
+  updatedAt                  DateTime    @updatedAt
+
+  @@index([contentItemId])
+  @@index([startedAt])
+}
+
+/// Состояние диалога VK Callback (лид-форма), без NLP.
+model VkConversationState {
+  id                     String   @id @default(cuid())
+  vkUserId               String
+  peerId                 String   @unique
+  currentState           String   @default("IDLE")
+  draftName              String   @default("")
+  draftPhone             String   @default("")
+  draftAddress           String   @default("")
+  draftRequestedDateText String   @default("")
+  draftComment           String   @default("")
+  /// Последний показанный MENU_DAILY (атрибуция лида)
+  menuContentItemId      String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([vkUserId])
+}
+
+/// Лид из VK-бота — не заказ; оператор оформляет DeliveryOrder отдельно.
+model VkLead {
+  id                   String   @id @default(cuid())
+  source               String   @default("vk_bot")
+  channel              String   @default("vk")
+  vkUserId             String
+  peerId               String
+  name                 String
+  phone                String
+  address              String
+  requestedDateText    String
+  comment              String   @default("")
+  status               String   @default("NEW")
+  rawPayloadJson       String
+  menuContentItemId    String?
+  attributionCampaign  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([vkUserId])
+}

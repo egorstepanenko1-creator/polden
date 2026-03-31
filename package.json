@@ -1,0 +1,13 @@
+{
+  "name": "crm-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Полдень CRM MVP — единая команда проверки перед релизом",
+  "scripts": {
+    "verify:launch": "node scripts/verify-launch.mjs",
+    "verify:launch:full": "node scripts/verify-launch.mjs --full"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "crm-mvp-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "node src/seed.js",
+    "db:ensure-vk-menu-drill": "node scripts/ensure-vk-menu-drill.mjs",
+    "db:seed:kitchen": "node src/seedKitchenDemo.js",
+    "test:food-cost": "node scripts/test-food-cost.mjs",
+    "prove:menu-day-economics": "node scripts/prove-menu-day-economics.mjs",
+    "prove:kitchen-catalog": "node scripts/prove-kitchen-catalog.mjs",
+    "prove:stock-foundation": "node scripts/prove-stock-foundation.mjs",
+    "prove:production-stock-gap": "node scripts/prove-production-stock-gap.mjs",
+    "prove:production-writeoff": "node scripts/prove-production-writeoff.mjs",
+    "prove:purchase-need-snapshot": "node scripts/prove-purchase-need-snapshot.mjs",
+    "prove:supplier-foundation": "node scripts/prove-supplier-foundation.mjs",
+    "prove:purchase-draft": "node scripts/prove-purchase-draft.mjs",
+    "prove:launch-day": "node scripts/prove-launch-day.mjs",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.3.1"
+  }
+}
