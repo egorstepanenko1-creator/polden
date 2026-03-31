@@ -50,6 +50,16 @@ export function logDatabaseEnvAtStartup() {
     const exists = fs.existsSync(sqlitePath);
     const size = exists ? fs.statSync(sqlitePath).size : -1;
     console.log(`[polden] DATABASE_URL kind=sqlite resolvedFile=${sqlitePath}`);
+    const dir = path.dirname(sqlitePath);
+    const base = path.basename(sqlitePath);
+    if (
+      base === 'dev.db' &&
+      (dir === '/' || dir === '\\' || /^[A-Za-z]:\\?$/.test(dir))
+    ) {
+      console.warn(
+        '[polden] WARN: SQLite путь похож на корневой /dev.db — часто это ошибка DATABASE_URL. Ожидается file:./имя.db относительно prisma/ или абсолютный file:/path/app.db.'
+      );
+    }
     if (!exists) {
       console.warn('[polden] WARN: SQLite file missing (migrate may create it).');
     } else if (size === 0) {

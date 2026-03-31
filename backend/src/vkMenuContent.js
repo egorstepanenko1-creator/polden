@@ -3,8 +3,8 @@
  * Правило: channel VK, contentType MENU_DAILY, status APPROVED или PUBLISHED,
  * сортировка: publishDate desc, updatedAt desc; тело — captionDraft (сжимается для чата).
  *
- * Важно: это маркетинговый/анонсный текст из пайплайна. Реальный набор позиций на доставку
- * «завтра» задаётся MenuDayItem и показывается только в потоке «Оформить заказ».
+ * Важно: текст из контент-пайплайна (ориентир). Продаваемый состав на «завтра» — MenuDayItem
+ * в потоке «Оформить заказ».
  */
 
 import { buildContentGeneratedUrl } from './contentGeneratedUrl.js';

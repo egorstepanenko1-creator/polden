@@ -506,8 +506,16 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
     const menuOk = Boolean(menuDaily.present && menuDaily.hasUsableCaption);
     const vkLiveDrillReady = Boolean(vkCoreEnvOk && menuOk && menuDaily.generatedUrlPublishSafe);
 
-    const probeBranches = await prisma.branch.findMany({ orderBy: { name: 'asc' }, take: 1 });
     const tomorrowIso = serverLocalTomorrowISO();
+    const probeBranchIdEnv = (process.env.POLDEN_VK_ORDER_PROBE_BRANCH_ID || '').trim();
+    let probeBranch = null;
+    if (probeBranchIdEnv) {
+      probeBranch = await prisma.branch.findUnique({ where: { id: probeBranchIdEnv } });
+    }
+    if (!probeBranch) {
+      const probeBranches = await prisma.branch.findMany({ orderBy: { name: 'asc' }, take: 1 });
+      probeBranch = probeBranches[0] || null;
+    }
     /** @type {{ deliveryDate: string, branchId: string | null, branchName: string | null, sellableSlotCount: number, ready: boolean, probeNote: string }} */
     let vkOrderableMenu = {
       deliveryDate: tomorrowIso,
@@ -515,14 +523,16 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
       branchName: null,
       sellableSlotCount: 0,
       ready: false,
-      probeNote: 'Проверка по первой точке (A→Я); при нескольких точках меню может отличаться.'
+      probeNote: probeBranchIdEnv
+        ? `Точка из POLDEN_VK_ORDER_PROBE_BRANCH_ID${probeBranch ? '' : ' (id не найден — fallback A→Я)'}.`
+        : 'Проверка по первой точке по имени (A→Я); задать POLDEN_VK_ORDER_PROBE_BRANCH_ID для своей точки.'
     };
-    if (probeBranches[0]) {
-      const rows = await loadOrderableMenuRows(prisma, probeBranches[0].id, tomorrowIso);
+    if (probeBranch) {
+      const rows = await loadOrderableMenuRows(prisma, probeBranch.id, tomorrowIso);
       vkOrderableMenu = {
         deliveryDate: tomorrowIso,
-        branchId: probeBranches[0].id,
-        branchName: probeBranches[0].name,
+        branchId: probeBranch.id,
+        branchName: probeBranch.name,
         sellableSlotCount: rows.length,
         ready: rows.length > 0,
         probeNote: vkOrderableMenu.probeNote
@@ -532,8 +542,8 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
     const vkStructuredOrderBlockers = [
       !token.length ? ReadinessRu.BLOCKER_NO_GROUP_TOKEN : null,
       !conf.length ? ReadinessRu.BLOCKER_NO_CONFIRMATION : null,
-      probeBranches.length === 0 ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
-      probeBranches.length > 0 && !vkOrderableMenu.ready ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
+      !probeBranch ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
+      probeBranch && !vkOrderableMenu.ready ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
     ].filter(Boolean);
 
     res.json(

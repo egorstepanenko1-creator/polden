@@ -73,6 +73,38 @@ export async function startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMes
 
   const tomorrow = serverLocalTomorrowISO();
 
+  const forcedBranchId = (process.env.POLDEN_VK_DEFAULT_BRANCH_ID || '').trim();
+  if (forcedBranchId) {
+    const forced = branches.find((b) => b.id === forcedBranchId);
+    if (forced) {
+      const rows = await loadOrderableMenuRows(prisma, forced.id, tomorrow);
+      if (!rows.length) {
+        await vkSendMessage(
+          peerId,
+          `${VkMsg.MSG_ORDER_MENU_EMPTY}\n\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
+          { keyboardJson }
+        );
+        return;
+      }
+      const menuText = formatVkOrderableMenuText(rows);
+      await prisma.vkConversationState.update({
+        where: { peerId },
+        data: {
+          currentState: ORDER_STATES.AWAIT_ITEMS,
+          draftBranchId: forced.id,
+          draftDeliveryDate: tomorrow,
+          draftCartJson: '[]'
+        }
+      });
+      await vkSendMessage(
+        peerId,
+        `${VkMsg.MSG_ORDER_INTRO_SINGLE_BRANCH(forced.name, tomorrow)}\n\n${menuText}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}`,
+        { keyboardJson: null }
+      );
+      return;
+    }
+  }
+
   if (branches.length === 1) {
     const b = branches[0];
     const rows = await loadOrderableMenuRows(prisma, b.id, tomorrow);
