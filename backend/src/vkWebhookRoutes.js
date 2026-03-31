@@ -1,8 +1,7 @@
 /**
  * VK Callback API — POST /api/vk/webhook (без CRM-токена; проверка VK_WEBHOOK_SECRET).
  *
- * Порядок: сначала confirmation (VK при подключении URL; не блокировать секретом),
- * затем проверка secret для остальных событий.
+ * confirmation — первым; для message_new с телом сообщения VK может не присылать secret — тогда не 403.
  */
 
 import { Router } from 'express';
@@ -36,18 +35,41 @@ export function createVkWebhookRouter(prisma) {
       return res.type('text/plain').send(code);
     }
 
+    const hasSecretField = Object.prototype.hasOwnProperty.call(body, 'secret');
     const incomingSecret = String(body.secret ?? '').trim();
-    const secretMatches = !secretCfg || incomingSecret === secretCfg;
+    const isMessageNewWithMessage = body.type === 'message_new' && Boolean(body.object?.message);
     const diagVerbose = process.env.VK_WEBHOOK_DIAGNOSTIC_LOG === '1';
 
-    if (!secretMatches) {
-      console.warn('[vk/webhook] reject: secret mismatch (403)', {
+    let secretOk;
+    let acceptedWithoutSecretFallback = false;
+
+    if (!secretCfg) {
+      secretOk = true;
+    } else if (isMessageNewWithMessage && incomingSecret.length === 0) {
+      secretOk = true;
+      acceptedWithoutSecretFallback = true;
+      console.warn('[vk/webhook] message_new without secret — accepting for handler', {
         type: body.type,
-        hasSecretField: Object.prototype.hasOwnProperty.call(body, 'secret'),
+        hasSecretField,
         incoming: secretPrefixForLog(incomingSecret),
         expected: secretPrefixForLog(secretCfg),
         secretMatch: false,
-        hasObjectMessage: Boolean(body.object?.message)
+        hasObjectMessage: true,
+        acceptedWithoutSecretFallback: true
+      });
+    } else {
+      secretOk = incomingSecret === secretCfg;
+    }
+
+    if (!secretOk) {
+      console.warn('[vk/webhook] reject: secret mismatch (403)', {
+        type: body.type,
+        hasSecretField,
+        incoming: secretPrefixForLog(incomingSecret),
+        expected: secretPrefixForLog(secretCfg),
+        secretMatch: false,
+        hasObjectMessage: Boolean(body.object?.message),
+        acceptedWithoutSecretFallback: false
       });
       return res.status(403).send('forbidden');
     }
@@ -55,11 +77,12 @@ export function createVkWebhookRouter(prisma) {
     if (diagVerbose) {
       console.log('[vk/webhook] accept', {
         type: body.type,
-        hasSecretField: Object.prototype.hasOwnProperty.call(body, 'secret'),
+        hasSecretField,
         incoming: secretPrefixForLog(incomingSecret),
         expected: secretPrefixForLog(secretCfg),
         secretMatch: true,
-        hasObjectMessage: Boolean(body.object?.message)
+        hasObjectMessage: Boolean(body.object?.message),
+        acceptedWithoutSecretFallback
       });
     }
 
