@@ -37,6 +37,35 @@ const KB = vkMainKeyboardJson();
 
 const OPERATOR_HINT = process.env.VK_OPERATOR_CONTACT_TEXT || VkMsg.VK_BOT_DEFAULT_OPERATOR_HINT;
 
+/** Повторная доставка одного и того же message_new от VK → два ответа; отсекаем по id. */
+const vkInboundDedup = new Map();
+const VK_DEDUP_MS = 25_000;
+function pruneVkDedup() {
+  const now = Date.now();
+  if (vkInboundDedup.size < 3000) return;
+  for (const [k, t] of vkInboundDedup) {
+    if (now - t > VK_DEDUP_MS * 2) vkInboundDedup.delete(k);
+  }
+}
+/**
+ * @param {string} peerId
+ * @param {{ id?: number, conversation_message_id?: number }} message
+ */
+function isDuplicateVkInbound(peerId, message) {
+  const mid = message.conversation_message_id ?? message.id;
+  if (mid === undefined || mid === null) return false;
+  pruneVkDedup();
+  const key = `${peerId}:${mid}`;
+  const now = Date.now();
+  const prev = vkInboundDedup.get(key);
+  if (prev !== undefined && now - prev < VK_DEDUP_MS) {
+    console.warn('[vk] skip duplicate webhook for same message id', { peerId, messageId: mid });
+    return true;
+  }
+  vkInboundDedup.set(key, now);
+  return false;
+}
+
 function isLeadCollectionState(s) {
   return (
     s === STATES.COLLECT_NAME ||
@@ -56,6 +85,8 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
   const peerId = String(message.peer_id);
   const vkUserId = String(message.from_id);
   const text = (message.text || '').trim();
+
+  if (isDuplicateVkInbound(peerId, message)) return;
 
   let state = await prisma.vkConversationState.findUnique({ where: { peerId } });
   if (!state) {
