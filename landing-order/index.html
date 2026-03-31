@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Полдень — обед на завтра по предзаказу. Соберите меню сегодня, получите свежую доставку завтра в обед." />
+  <title>Полдень — обед на завтра</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root{
+      --g:#2F6B4F;--g2:#234434;--g-soft:#3d7d5f;
+      --cream:#F6F1E8;--cream-2:#EFE8DC;
+      --text:#253028;--muted:#5a6b5f;--line:#D9E1D7;
+      --white:#fff;--ok:#2e7d4f;--err:#b7423a;
+      --radius:16px;--radius-sm:12px;
+      --font-display:'Plus Jakarta Sans',Inter,system-ui,sans-serif;
+      --font-body:Inter,system-ui,sans-serif;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;font-family:var(--font-body);background:var(--cream);color:var(--text);-webkit-font-smoothing:antialiased}
+    .wrap-inner{max-width:1040px;margin:0 auto;padding:0 18px 48px}
+
+    /* Header */
+    .site-header{
+      position:sticky;top:0;z-index:40;background:rgba(246,241,232,.92);
+      backdrop-filter:saturate(1.2) blur(10px);
+      border-bottom:1px solid var(--line);
+    }
+    .site-header__row{max-width:1040px;margin:0 auto;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+    .brand-mark{width:36px;height:36px;background:var(--g);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .brand-mark svg{width:20px;height:20px}
+    .brand-text{font-family:var(--font-display);font-weight:700;font-size:1.05rem;letter-spacing:-.02em}
+    .brand-tag{font-size:11px;color:var(--muted);font-weight:500;margin-top:2px}
+    .btn-cta-header{
+      font:inherit;font-weight:600;font-size:14px;padding:11px 18px;border-radius:999px;border:none;background:var(--g);color:#fff;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;
+      transition:background .2s,transform .15s;
+    }
+    .btn-cta-header:hover{background:var(--g2)}
+    .btn-cta-header:active{transform:scale(.98)}
+
+    /* Shell hero */
+    .shell-hero{padding:clamp(28px,6vw,52px) 18px clamp(36px,7vw,56px);background:linear-gradient(165deg,var(--cream) 0%,var(--cream-2) 45%,#e8e2d6 100%)}
+    .shell-hero__inner{max-width:1040px;margin:0 auto}
+    .shell-hero__card{
+      background:linear-gradient(135deg,var(--g),#2a5c47 55%,var(--g2));
+      border-radius:clamp(18px,3vw,24px);padding:clamp(24px,5vw,40px);color:#fff;
+      box-shadow:0 20px 50px rgba(20,45,34,.25);position:relative;overflow:hidden;
+    }
+    .shell-hero__card::before{
+      content:'';position:absolute;inset:-40% 40% auto -20%;height:120%;
+      background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 55%);pointer-events:none;
+    }
+    .shell-hero__content{position:relative;z-index:1;max-width:36rem}
+    .shell-kicker{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.75);font-weight:600;margin:0 0 12px}
+    .shell-hero h1{
+      font-family:var(--font-display);font-size:clamp(1.75rem,5vw,2.5rem);line-height:1.12;margin:0 0 14px;font-weight:700;letter-spacing:-.03em;
+    }
+    .shell-lead{font-size:clamp(15px,2.5vw,17px);line-height:1.55;color:rgba(255,255,255,.9);margin:0 0 22px;max-width:32rem}
+    .shell-trust{font-size:13px;color:rgba(255,255,255,.72);margin:14px 0 0;line-height:1.45;max-width:28rem}
+    .btn-hero{
+      font:inherit;font-weight:600;font-size:16px;padding:16px 28px;border-radius:14px;border:none;background:#fff;color:var(--g);cursor:pointer;
+      box-shadow:0 4px 20px rgba(0,0,0,.12);transition:transform .15s,box-shadow .2s;
+    }
+    .btn-hero:hover{box-shadow:0 8px 28px rgba(0,0,0,.15)}
+    .btn-hero:active{transform:scale(.99)}
+
+    /* Sections */
+    .shell-section{padding:clamp(40px,6vw,64px) 18px}
+    .shell-section--tint{background:var(--white)}
+    .shell-section h2{
+      font-family:var(--font-display);font-size:clamp(1.35rem,3.5vw,1.65rem);margin:0 0 8px;letter-spacing:-.02em;
+    }
+    .shell-section .section-intro{color:var(--muted);font-size:15px;line-height:1.5;margin:0 0 28px;max-width:36rem}
+
+    .steps{display:grid;grid-template-columns:1fr;gap:18px;max-width:900px}
+    @media(min-width:700px){.steps{grid-template-columns:repeat(3,1fr);gap:22px}}
+    .step{
+      background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:22px 20px;
+      box-shadow:0 2px 12px rgba(32,49,40,.04);
+    }
+    .step-num{
+      font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--g);margin-bottom:10px;
+      width:32px;height:32px;border-radius:10px;background:rgba(47,107,79,.1);display:flex;align-items:center;justify-content:center;
+    }
+    .step h3{margin:0 0 8px;font-size:16px;font-weight:600}
+    .step p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+
+    .benefits{display:grid;grid-template-columns:1fr;gap:14px}
+    @media(min-width:640px){.benefits{grid-template-columns:repeat(2,1fr)}}
+    @media(min-width:900px){.benefits{grid-template-columns:repeat(4,1fr);gap:16px}}
+    .benefit{border:1px solid var(--line);border-radius:var(--radius-sm);padding:18px 16px;background:var(--cream)}
+    .benefit h3{margin:0 0 6px;font-size:15px;font-weight:600}
+    .benefit p{margin:0;font-size:13px;color:var(--muted);line-height:1.45}
+
+    .preview-strip{max-width:1040px;margin:0 auto}
+    .preview-heading{margin:0 0 10px;font-family:var(--font-display);font-size:clamp(1.2rem,3vw,1.45rem);letter-spacing:-.02em}
+    .menu-preview-context{margin-bottom:16px;font-size:14px;line-height:1.5;color:var(--text)}
+    .menu-preview-context .menu-preview-line{margin:0 0 8px;color:var(--muted)}
+    .menu-preview-badges{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+    .menu-preview-badge{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em}
+    .menu-preview-badge--live{background:rgba(46,125,79,.12);color:var(--ok)}
+    .menu-preview-badge--degraded{background:rgba(201,139,60,.15);color:#8a5a1a}
+    .menu-preview-badge--demo{background:rgba(90,107,95,.12);color:var(--muted)}
+    .menu-preview-badge--wait{background:rgba(47,107,79,.1);color:var(--g)}
+    .preview-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    @media(min-width:600px){.preview-cards{grid-template-columns:repeat(4,1fr)}}
+    .preview-card{
+      background:var(--white);border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px 14px;min-height:100px;
+      display:flex;flex-direction:column;justify-content:flex-end;
+    }
+    .preview-card span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+    .preview-card strong{font-size:14px;font-weight:600;line-height:1.3}
+    .preview-card.preview-card--unconfirmed span:first-child{opacity:.85}
+    .preview-card .preview-price{font-size:12px;color:var(--muted);margin-top:6px;font-weight:500}
+    .menu-preview-footnote{margin-top:16px;font-size:13px;max-width:42rem;line-height:1.5}
+    .menu-preview-skeleton{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    @media(min-width:600px){.menu-preview-skeleton{grid-template-columns:repeat(4,1fr)}}
+    .menu-preview-skel-item{height:96px;border-radius:var(--radius-sm);background:linear-gradient(90deg,#eee,#f5f5f2,#eee);background-size:200% 100%;animation:skel 1.2s ease-in-out infinite}
+    @keyframes skel{0%{background-position:100% 0}100%{background-position:-100% 0}}
+    .menu-preview-empty{padding:24px 16px;text-align:center;border:1px dashed var(--line);border-radius:var(--radius-sm);background:var(--cream);color:var(--muted);font-size:14px;line-height:1.5}
+
+    /* Order gate */
+    .order-gate-banner{
+      display:none;margin:0 0 20px;padding:14px 16px;border-radius:var(--radius-sm);
+      border:1px solid #e8d4a8;background:#fff9ed;color:#4a3d26;font-size:14px;line-height:1.5;
+    }
+    .order-gate-banner.is-visible{display:block}
+    .order-section--locked .menuBlock{opacity:.72}
+    .order-section--locked input:not([readonly]),.order-section--locked textarea{opacity:.85}
+
+    .order-success-panel{
+      display:none;margin:0 0 20px;padding:18px 16px;border-radius:var(--radius-sm);
+      border:1px solid #c5dfc8;background:#f0faf2;color:var(--text);
+    }
+    .order-success-panel.is-visible{display:block}
+    .order-success-panel h3{margin:0 0 10px;font-family:var(--font-display);font-size:1.1rem;color:var(--g2)}
+    .order-success-panel ul{margin:8px 0 0;padding-left:1.1rem;font-size:14px;line-height:1.45}
+    .order-success-panel .order-success-meta{font-size:14px;line-height:1.55;margin:6px 0 0;color:var(--text)}
+    .order-success-panel .order-success-id{font-size:12px;color:var(--muted);margin-top:12px;word-break:break-all}
+    .order-success-panel .order-success-next{font-size:13px;color:var(--muted);margin-top:14px}
+    .order-success-panel .btn-new-order{
+      margin-top:14px;font:inherit;font-weight:600;font-size:14px;padding:12px 18px;border-radius:12px;
+      border:1px solid var(--line);background:var(--white);color:var(--g);cursor:pointer;
+    }
+    .order-success-panel .btn-new-order:hover{background:var(--cream)}
+
+    /* Order block (existing form) */
+    .order-section{padding:8px 0 56px}
+    .order-kicker{text-align:center;font-size:13px;font-weight:600;color:var(--g);letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px}
+    .order-title{text-align:center;font-family:var(--font-display);font-size:clamp(1.4rem,3vw,1.75rem);margin:0 0 10px;letter-spacing:-.02em}
+    .order-sub{text-align:center;color:var(--muted);font-size:15px;margin:0 auto 28px;max-width:32rem;line-height:1.5}
+
+    .grid{display:grid;grid-template-columns:1.25fr .75fr;gap:14px;margin-top:14px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+    .title{margin:0 0 8px;font-size:18px;font-family:var(--font-display)}
+    .muted{color:var(--muted);font-size:14px}
+
+    label{display:block;font-size:13px;font-weight:600;margin:8px 0 6px}
+    input,textarea,button{font:inherit}
+    input,textarea{width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;background:#fff;outline:none;font-size:16px}
+    input:focus,textarea:focus{border-color:var(--g)}
+    textarea{min-height:88px;resize:vertical}
+
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .meta--single{grid-template-columns:1fr}
+
+    .menuBlock{margin-top:8px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;background:#fcfbf9}
+    .menuGroup{margin-bottom:10px}
+    .menuGroup h4{margin:0 0 6px;font-size:14px}
+    .menuRow{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;gap:10px}
+    .menuRow:nth-child(odd){background:#fff}
+    .menuRow--unconfirmed{opacity:.88}
+    .menuRow-hint{display:block;font-size:11px;font-weight:500;color:var(--muted);margin-top:4px}
+    .preview-card--unconfirmed{opacity:.75;border-style:dashed}
+    .preview-card-hint{display:block;font-size:10px;color:var(--muted);margin-top:6px;text-transform:none;letter-spacing:0;font-weight:500}
+
+    .qty{display:flex;align-items:center;gap:6px}
+    .qty button{width:36px;height:36px;border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;font-size:18px;line-height:1}
+    .qtyVal{min-width:22px;text-align:center;font-weight:700}
+
+    .sum{display:flex;justify-content:space-between;align-items:center;margin:12px 0;font-weight:700;font-size:17px}
+    .btn{width:100%;border:none;background:var(--g);color:#fff;padding:16px;border-radius:14px;font-weight:700;font-size:16px;cursor:pointer;transition:background .2s}
+    .btn:hover{background:var(--g2)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+
+    .status{min-height:22px;margin-top:10px;font-size:14px;font-weight:600}
+    .ok{color:var(--ok)}
+    .err{color:var(--err)}
+
+    .preview li{margin-bottom:6px}
+
+    /* Bottom CTA */
+    .shell-cta-bottom{
+      background:linear-gradient(135deg,var(--g),var(--g2));color:#fff;padding:clamp(40px,6vw,56px) 18px;text-align:center;
+    }
+    .shell-cta-bottom h2{font-family:var(--font-display);font-size:clamp(1.4rem,3.5vw,1.85rem);margin:0 0 10px;letter-spacing:-.02em}
+    .shell-cta-bottom p{margin:0 auto 22px;max-width:28rem;opacity:.9;font-size:15px;line-height:1.5}
+    .shell-cta-bottom .btn-hero{margin:0 auto}
+
+    /* Footer */
+    .site-footer{border-top:1px solid var(--line);background:var(--white);padding:28px 18px}
+    .site-footer__inner{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
+    @media(min-width:640px){.site-footer__inner{flex-direction:row;justify-content:space-between;text-align:left}}
+    .site-footer strong{font-family:var(--font-display);font-size:15px}
+    .site-footer p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+
+    @media(max-width:900px){
+      .grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__row">
+      <a class="brand" href="#" aria-label="Полдень — наверх">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M9 12h6" stroke-linecap="round"/></svg>
+        </span>
+        <span>
+          <span class="brand-text">Полдень</span><br />
+          <span class="brand-tag">Обед на завтра</span>
+        </span>
+      </a>
+      <a class="btn-cta-header" href="#order">Заказать</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="shell-hero" aria-labelledby="hero-heading">
+      <div class="shell-hero__inner">
+        <div class="shell-hero__card">
+          <div class="shell-hero__content">
+            <p class="shell-kicker">Сервис обедов · предзаказ</p>
+            <h1 id="hero-heading">Завтрашний обед уже решён</h1>
+            <p class="shell-lead">Выберите блюда сегодня — мы приготовим свежим и привезём в удобное обеденное окно. Спокойно, вкусно, без суеты в разгар дня.</p>
+            <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Собрать обед на завтра</button>
+            <p class="shell-trust">Меню дня · понятная цена до отправки заявки · доставка в согласованное время</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell-section shell-section--tint" aria-labelledby="how-heading">
+      <div class="wrap-inner">
+        <h2 id="how-heading">Как это работает</h2>
+        <p class="section-intro">Три шага — и обед на завтра в работе.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <h3>Выберите завтрашний обед</h3>
+            <p>Откройте меню на завтра и соберите комплект: суп, горячее, салат и при желании добавки.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <h3>Оформите заявку</h3>
+            <p>Имя, телефон и адрес — пара полей. Итог с суммой виден до отправки.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <h3>Получите в обед</h3>
+            <p>На следующий день привезём в ваше окно. Подтверждение — по СМС.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell-section" aria-labelledby="benefits-heading">
+      <div class="wrap-inner">
+        <h2 id="benefits-heading">Почему это удобно</h2>
+        <p class="section-intro">Без шума и лишних обещаний — то, что важно для рабочего дня.</p>
+        <div class="benefits">
+          <div class="benefit">
+            <h3>Свежее меню дня</h3>
+            <p>Новый набор позиций каждый день, готовим к доставке — не «вчерашнее с подогрева».</p>
+          </div>
+          <div class="benefit">
+            <h3>Простой заказ</h3>
+            <p>Один экран: меню, контакты, комментарий. Не нужно звонить и ждать на линии.</p>
+          </div>
+          <div class="benefit">
+            <h3>Цена до «Отправить»</h3>
+            <p>Состав и сумма прозрачны до заявки — никаких сюрпризов после оформления.</p>
+          </div>
+          <div class="benefit">
+            <h3>Доставка в окно</h3>
+            <p>Обеденный интервал согласуем так, чтобы вам не мешать в самый пик дня.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell-section shell-section--tint" aria-labelledby="menu-preview-heading">
+      <div class="wrap-inner preview-strip">
+        <h2 id="menu-preview-heading" class="preview-heading">Меню на завтра</h2>
+        <div id="menu-preview-context" class="menu-preview-context" aria-live="polite"></div>
+        <div id="menu-preview-cards" class="preview-cards"></div>
+        <p id="menu-preview-footnote" class="menu-preview-footnote muted" role="note"></p>
+      </div>
+    </section>
+
+    <section id="order" class="order-section">
+      <div class="wrap-inner">
+        <p class="order-kicker">Заказ</p>
+        <h2 class="order-title">Соберите обед и отправьте заявку</h2>
+        <p class="order-sub" id="order-context-line">Дата доставки — завтра. После отправки свяжемся для подтверждения.</p>
+        <div id="order-gate-banner" class="order-gate-banner" role="status" aria-live="polite"></div>
+        <div id="order-success-panel" class="order-success-panel" role="region" aria-labelledby="order-success-title" hidden></div>
+
+        <div class="grid">
+          <form id="form" class="card">
+            <h2 class="title">Оформление заявки</h2>
+
+            <div class="meta meta--single">
+              <div>
+                <label>Дата подтверждения</label>
+                <input id="fixedDate" readonly />
+              </div>
+            </div>
+
+            <label>Формат заказа (меню дня)</label>
+            <div id="menu" class="menuBlock"></div>
+
+            <div class="meta">
+              <div>
+                <label>Имя</label>
+                <input id="name" required placeholder="Как к вам обращаться" />
+              </div>
+              <div>
+                <label>Телефон</label>
+                <input id="phone" required placeholder="+7 900 123 45 67" />
+              </div>
+            </div>
+
+            <label>Адрес</label>
+            <input id="address" placeholder="Улица, дом, офис/кв" />
+
+            <label>Комментарий</label>
+            <textarea id="comment" placeholder="Пожелания к заказу"></textarea>
+
+            <div class="sum"><span>Итого</span><span id="total">0 ₽</span></div>
+            <button id="submit" class="btn" type="submit">Отправить заявку</button>
+            <div id="status" class="status"></div>
+          </form>
+
+          <aside class="card">
+            <h3 class="title">Ваша заявка</h3>
+            <p class="muted">Список позиций и сумма обновляются при выборе блюд.</p>
+            <ul id="preview" class="preview muted"></ul>
+            <p class="muted">Полдень — обеды по предзаказу: готовим к доставке, привозим в согласованное время.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="shell-cta-bottom" aria-labelledby="cta2-heading">
+      <h2 id="cta2-heading">Готовы закрыть вопрос с обедом?</h2>
+      <p>Один раз оформили — завтра в обед уже с едой. Вернитесь к форме и отправьте заявку.</p>
+      <button type="button" class="btn-hero" onclick="document.getElementById('order').scrollIntoView({behavior:'smooth'})">Перейти к меню</button>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer__inner">
+      <div>
+        <strong>Полдень</strong>
+        <p style="margin-top:4px">Обед на завтра по предзаказу.</p>
+      </div>
+      <p>© <span id="y"></span> Полдень · Доставка обедов</p>
+    </div>
+  </footer>
+
+<script>
+document.getElementById('y').textContent = new Date().getFullYear();
+(function () {
+  try {
+    const q = new URLSearchParams(location.search).get('api');
+    if (q) localStorage.setItem('polden_api_base', q.replace(/\/$/, ''));
+  } catch (_) {}
+})();
+const API_BASE = (function () {
+  try {
+    const fromStorage = localStorage.getItem('polden_api_base');
+    const fromQuery = new URLSearchParams(location.search).get('api');
+    const raw = (fromQuery || fromStorage || 'https://api.xn----8sbke2aeleiq6a3h.xn--p1ai/api').replace(/\/$/, '');
+    return raw.endsWith('/api') ? raw : raw + '/api';
+  } catch (_) {
+    return 'https://api.xn----8sbke2aeleiq6a3h.xn--p1ai/api';
+  }
+})();
+function getTomorrowISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function getTomorrowFormatted() { const d = new Date(); d.setDate(d.getDate() + 1); return String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + d.getFullYear(); }
+const DELIVERY_DATE = getTomorrowISO();
+const FALLBACK_MENU = {
+  1: { name: 'Суп гороховый', price: 330 },
+  2: { name: 'Суп рыбный', price: 330 },
+  3: { name: 'Дранники со сметаной', price: 330 },
+  4: { name: 'Макароны по-флотски', price: 330 },
+  5: { name: 'Салат фасолька', price: 330 },
+  6: { name: 'Салат печёночный', price: 330 },
+  7: { name: 'Компот 0,5л', price: 70 },
+  8: { name: 'Каша пшено', price: 90 },
+  9: { name: 'Курник', price: 100 },
+  10: { name: 'Резерв', price: 0 },
+};
+const GROUPS = [
+  { key:'soup', title:'Суп', positions:[1,2] },
+  { key:'main', title:'Горячее', positions:[3,4] },
+  { key:'salad', title:'Салат', positions:[5,6] },
+  { key:'extra', title:'Дополнительно', positions:[7,8,9,10] },
+];
+const state = {
+  branchId:'',
+  branchName:'',
+  /** loading | live | degraded | illustrative — источник правды для подписи превью (данные позиций всегда из state.menu) */
+  menuLoadStatus:'loading',
+  menu:{},
+  counters:{},
+  quote:{ totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 },
+  /** idle | submitting | success | error */
+  submitState:'idle',
+  lastAcceptedOrder:null
+};
+const $ = (id) => document.getElementById(id);
+
+/**
+ * Атрибуция публичного заказа (минимально, без сторонних SDK).
+ * Правило приоритета: first-touch в рамках вкладки (sessionStorage).
+ * — UTM из URL фиксируются при первом заходе; повторный заход с другими UTM их не перезаписывает.
+ * — landing_path / referrer заполняются при первом сохранении; пустые поля не затирают уже сохранённые.
+ */
+const POLDEN_ATTRIB_KEY = 'polden_public_attribution_v1';
+const ATTRIB_STR_MAX = 240;
+const ATTRIB_PATH_MAX = 512;
+
+function truncateAttribStr(s, max) {
+  const t = String(s == null ? '' : s).trim();
+  if (!t) return '';
+  return t.length <= max ? t : t.slice(0, max);
+}
+
+function parseUtmFromSearch(search) {
+  const params = new URLSearchParams(search || '');
+  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+  const out = {};
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const v = params.get(k);
+    const t = truncateAttribStr(v, ATTRIB_STR_MAX);
+    if (t) out[k] = t;
+  }
+  return out;
+}
+
+function mergeFirstTouchUtm(stored, fromUrl) {
+  if (!stored || typeof stored !== 'object') return fromUrl || {};
+  const next = Object.assign({}, stored);
+  const keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (!next[k] && fromUrl && fromUrl[k]) next[k] = fromUrl[k];
+  }
+  return next;
+}
+
+function initSessionAttribution() {
+  try {
+    const fromUrl = parseUtmFromSearch(window.location.search);
+    const pathFull = truncateAttribStr(window.location.pathname + window.location.search, ATTRIB_PATH_MAX);
+    const ref = truncateAttribStr(document.referrer || '', ATTRIB_PATH_MAX);
+
+    let raw = sessionStorage.getItem(POLDEN_ATTRIB_KEY);
+    let stored = null;
+    if (raw) {
+      try {
+        stored = JSON.parse(raw);
+      } catch (_) {
+        stored = null;
+      }
+    }
+
+    if (!stored || typeof stored !== 'object') {
+      const first = Object.assign({}, fromUrl);
+      if (pathFull) first.landing_path = pathFull;
+      if (ref) first.referrer = ref;
+      sessionStorage.setItem(POLDEN_ATTRIB_KEY, JSON.stringify(first));
+      return;
+    }
+
+    let merged = mergeFirstTouchUtm(stored, fromUrl);
+    if (!merged.landing_path && pathFull) merged.landing_path = pathFull;
+    if (!merged.referrer && ref) merged.referrer = ref;
+    sessionStorage.setItem(POLDEN_ATTRIB_KEY, JSON.stringify(merged));
+  } catch (_) {
+    /* не ломаем заказ из-за storage */
+  }
+}
+
+function getAttributionForPayload() {
+  try {
+    const raw = sessionStorage.getItem(POLDEN_ATTRIB_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return null;
+    const allowed = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'landing_path', 'referrer'];
+    const out = {};
+    for (let i = 0; i < allowed.length; i++) {
+      const k = allowed[i];
+      const v = o[k];
+      if (v != null && String(v).trim()) out[k] = String(v).trim();
+    }
+    return Object.keys(out).length ? out : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+initSessionAttribution();
+
+/** Заказ с лендинга только при подтверждённом ответе menu-day (есть валидные позиции из API). Иначе — безопасный запрет. */
+function orderingAllowed(){
+  return state.menuLoadStatus === 'live';
+}
+
+function applyOrderingGate(){
+  const allow = orderingAllowed();
+  const busy = state.submitState === 'submitting' || state.submitState === 'success';
+  const canFillForm = allow && !busy;
+  const section = $('order');
+  const banner = $('order-gate-banner');
+  const submit = $('submit');
+  const name = $('name');
+  const phone = $('phone');
+  const address = $('address');
+  const comment = $('comment');
+
+  if (section) section.classList.toggle('order-section--locked', !allow || busy);
+
+  if (banner) {
+    let msg = '';
+    if (state.menuLoadStatus === 'loading') {
+      msg = 'Загружаем меню из системы… Оформление заявки откроется только после подтверждения меню на завтра.';
+    } else if (state.menuLoadStatus === 'degraded') {
+      msg = 'Меню на завтра в системе не подтверждено (пусто или не заполнено). Онлайн-заказ с этой страницы сейчас недоступен. Обновите страницу позже или свяжитесь с Полденью.';
+    } else if (state.menuLoadStatus === 'illustrative') {
+      msg = 'Не удалось получить меню из системы. Онлайн-заказ с этой страницы недоступен: без подтверждённого меню мы не принимаем заявку. Проверьте связь и обновите страницу.';
+    }
+    if (allow) {
+      banner.classList.remove('is-visible');
+      banner.textContent = '';
+    } else {
+      banner.textContent = msg;
+      banner.classList.add('is-visible');
+    }
+  }
+
+  if (submit) {
+    submit.disabled = !canFillForm;
+    submit.setAttribute('aria-disabled', canFillForm ? 'false' : 'true');
+    if (state.submitState === 'success') submit.textContent = 'Заказ принят';
+    else if (state.submitState === 'submitting') submit.textContent = 'Отправляем…';
+    else submit.textContent = 'Отправить заявку';
+  }
+  [name, phone, address, comment].forEach((el) => {
+    if (!el) return;
+    el.disabled = !canFillForm;
+  });
+}
+
+function renderPublicMenuPreview(){
+  const ctx = $('menu-preview-context');
+  const cardsHost = $('menu-preview-cards');
+  const foot = $('menu-preview-footnote');
+  const orderLine = $('order-context-line');
+  if (!ctx || !cardsHost || !foot) return;
+
+  const dateHuman = getTomorrowFormatted();
+
+  if (state.menuLoadStatus === 'loading') {
+    ctx.innerHTML = '<p class="menu-preview-line">Загружаем меню и точку доставки…</p><div class="menu-preview-badges"><span class="menu-preview-badge menu-preview-badge--wait">Загрузка</span></div>';
+    cardsHost.innerHTML = '<div class="menu-preview-skeleton">' + Array.from({ length: 8 }, () => '<div class="menu-preview-skel-item"></div>').join('') + '</div>';
+    foot.textContent = '';
+    if (orderLine) orderLine.textContent = 'Дата доставки — завтра (' + dateHuman + '). После загрузки меню здесь и в форме ниже будет один и тот же список.';
+    applyOrderingGate();
+    return;
+  }
+
+  let badgeHtml = '';
+  let footText = '';
+  if (state.menuLoadStatus === 'live') {
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--live">Как в системе</span>';
+    footText = 'Заказ возможен только по позициям без пометки «не для заказа» — они совпадают с данными CRM. Остальные строки для ориентира.';
+  } else if (state.menuLoadStatus === 'degraded') {
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--degraded">Меню в системе не заполнено</span>';
+    footText = 'Меню на эту дату не подтверждено в CRM. Список ниже только для ориентира — оформить заказ на сайте нельзя, пока меню не появится в системе.';
+  } else {
+    badgeHtml = '<span class="menu-preview-badge menu-preview-badge--demo">Иллюстрация · не из системы</span>';
+    footText = 'Меню из системы недоступно. Показан примерный состав — он не принимается для онлайн-заказа. Обновите страницу или свяжитесь с сервисом.';
+  }
+
+  const branchLine = state.branchName
+    ? 'Точка: <strong>' + escapeHtml(state.branchName) + '</strong> · Дата доставки: <strong>' + escapeHtml(dateHuman) + '</strong> (завтра)'
+    : 'Дата доставки: <strong>' + escapeHtml(dateHuman) + '</strong> (завтра)' + (state.branchId ? '' : ' · точка не выбрана');
+
+  ctx.innerHTML = '<p class="menu-preview-line">' + branchLine + '</p><div class="menu-preview-badges">' + badgeHtml + '</div>';
+
+  if (orderLine) {
+    if (state.branchName && state.branchId) {
+      orderLine.textContent = 'Точка: ' + state.branchName + ' · Доставка ' + dateHuman + ' (завтра). После отправки свяжемся для подтверждения.';
+    } else {
+      orderLine.textContent = 'Дата доставки — завтра (' + dateHuman + '). После отправки свяжемся для подтверждения.';
+    }
+  }
+
+  cardsHost.innerHTML = '';
+  let anyCard = false;
+  for (const group of GROUPS) {
+    for (const pos of group.positions) {
+      const item = state.menu[pos];
+      if (!item?.name) continue;
+      anyCard = true;
+      const isComboPos = pos >= 1 && pos <= 6;
+      const pricePart = !isComboPos && item.price > 0 ? '<div class="preview-price">' + rub(item.price) + '</div>' : '';
+      const el = document.createElement('div');
+      el.className = 'preview-card' + (item.confirmed ? '' : ' preview-card--unconfirmed');
+      const hint = item.confirmed ? '' : '<span class="preview-card-hint">Не для заказа · не в системе на дату</span>';
+      el.innerHTML = '<span>' + escapeHtml(group.title) + ' · п.' + pos + '</span><strong>' + escapeHtml(item.name) + '</strong>' + hint + pricePart;
+      cardsHost.appendChild(el);
+    }
+  }
+
+  if (!anyCard) {
+    cardsHost.innerHTML = '<div class="menu-preview-empty" role="status">Позиций для показа нет. После подтверждения меню в системе список и заказ обновятся.</div>';
+  }
+
+  foot.textContent = footText;
+  applyOrderingGate();
+}
+
+function escapeHtml(s){
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function rub(n){ return `${Number(n || 0).toLocaleString('ru-RU')} ₽`; }
+function formatPhone(digits) {
+  digits = (digits || '').replace(/\D/g, '');
+  if (digits.charAt(0) === '8') digits = '7' + digits.slice(1);
+  if (digits.charAt(0) !== '7') digits = '7' + digits;
+  digits = digits.slice(0, 11);
+  if (digits.length <= 1) return '+7';
+  const r = digits.slice(1);
+  return '+7 ' + r.slice(0,3) + (r.length>3?' '+r.slice(3,6):'') + (r.length>6?'-'+r.slice(6,8):'') + (r.length>8?'-'+r.slice(8,10):'');
+}
+function bindPhone(el) {
+  el.addEventListener('input', function() { this.value = formatPhone(this.value); });
+  el.addEventListener('focus', function() { if(!this.value) this.value = '+7 '; });
+}
+function broken(text){ const t = String(text || ''); return !t || t.includes('\uFFFD') || /[ÐÑ]/.test(t); }
+function setStatus(text, ok=false){
+  const el = $('status');
+  el.textContent = text || '';
+  el.className = 'status ' + (text ? (ok ? 'ok' : 'err') : '');
+}
+
+function formatOrderDeliveryDate(iso){
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch (_) {
+    return '';
+  }
+}
+
+function rubFromMinor(minor){
+  return rub(Number(minor || 0) / 100);
+}
+
+function renderOrderSuccessPanel(order){
+  const host = $('order-success-panel');
+  if (!host || !order) return;
+  const dateStr = formatOrderDeliveryDate(order.deliveryDate) || getTomorrowFormatted();
+  const branchName = order.branch && order.branch.name ? escapeHtml(String(order.branch.name)) : '';
+  const cust = order.customerName ? escapeHtml(String(order.customerName)) : '';
+  const phoneDisp = order.customerPhone ? escapeHtml(String(order.customerPhone)) : '';
+  const items = Array.isArray(order.items) ? order.items : [];
+  const lines = items
+    .map((it) => {
+      const pos = it.position != null ? it.position : '—';
+      const q = it.qty != null ? it.qty : '—';
+      return '<li>Позиция ' + escapeHtml(String(pos)) + ' × ' + escapeHtml(String(q)) + '</li>';
+    })
+    .join('');
+  const listHtml = lines ? '<ul>' + lines + '</ul>' : '<p class="order-success-meta">Состав заказа принят сервером.</p>';
+  const idHtml = order.id ? '<p class="order-success-id">ID в системе: ' + escapeHtml(String(order.id)) + '</p>' : '';
+  host.innerHTML =
+    '<h3 id="order-success-title">Заказ создан</h3>' +
+    '<p class="order-success-meta">Сервер подтвердил приём заявки. Подтверждение по СМС пришлём отдельно.</p>' +
+    '<p class="order-success-meta"><strong>Дата доставки (по системе):</strong> ' + escapeHtml(dateStr) + '</p>' +
+    (branchName ? '<p class="order-success-meta"><strong>Точка:</strong> ' + branchName + '</p>' : '') +
+    (cust ? '<p class="order-success-meta"><strong>Имя в заказе:</strong> ' + cust + '</p>' : '') +
+    (phoneDisp ? '<p class="order-success-meta"><strong>Телефон в заказе:</strong> ' + phoneDisp + '</p>' : '') +
+    '<p class="order-success-meta"><strong>Сумма по системе:</strong> ' + escapeHtml(rubFromMinor(order.totalAmount)) + '</p>' +
+    '<p class="order-success-meta"><strong>Принятые позиции:</strong></p>' +
+    listHtml +
+    idHtml +
+    '<p class="order-success-next">Чтобы оформить ещё один заказ, сбросьте форму — предыдущий уже зафиксирован.</p>' +
+    '<button type="button" class="btn-new-order" id="order-new-btn">Оформить новый заказ</button>';
+  host.hidden = false;
+  host.classList.add('is-visible');
+  const nb = $('order-new-btn');
+  if (nb) nb.onclick = () => startNewOrderAfterSuccess();
+}
+
+function startNewOrderAfterSuccess(){
+  state.submitState = 'idle';
+  state.lastAcceptedOrder = null;
+  const panel = $('order-success-panel');
+  if (panel) {
+    panel.innerHTML = '';
+    panel.hidden = true;
+    panel.classList.remove('is-visible');
+  }
+  if ($('name')) $('name').value = '';
+  if ($('phone')) $('phone').value = '+7';
+  if ($('address')) $('address').value = '';
+  if ($('comment')) $('comment').value = '';
+  for (let p = 1; p <= 10; p++) {
+    if (state.menu[p]?.confirmed) state.counters[p] = 0;
+  }
+  setStatus('');
+  renderMenu();
+  applyOrderingGate();
+  void refreshQuote();
+}
+
+async function api(path, opts={}){
+  const res = await fetch(API_BASE + path, { headers:{ 'Content-Type':'application/json' }, ...opts });
+  const json = await res.json().catch(()=>null);
+  if(!res.ok || !json?.ok) throw new Error(json?.error?.message || `Ошибка ${res.status}`);
+  return json.data;
+}
+
+/** Позиция считается подтверждённой API menu-day, если имя взято из ответа (не из fallback). */
+function positionConfirmed(pos){
+  return !!state.menu[pos]?.confirmed;
+}
+
+function selectedItems(){
+  return Object.entries(state.counters)
+    .map(([position, qty]) => ({ position:Number(position), qty:Number(qty) }))
+    .filter((x) => x.qty > 0 && positionConfirmed(x.position));
+}
+
+async function refreshQuote(){
+  if (!orderingAllowed()) {
+    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    renderSummary();
+    return;
+  }
+  const items = selectedItems();
+  if(!state.branchId || items.length === 0){
+    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    renderSummary();
+    return;
+  }
+  try{
+    const quote = await api('/public/delivery-orders/quote', {
+      method:'POST',
+      body: JSON.stringify({ branchId: state.branchId, deliveryDate: DELIVERY_DATE, items })
+    });
+    state.quote = quote || { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+  }catch{
+    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+  }
+  renderSummary();
+}
+
+function renderSummary(){
+  if (!orderingAllowed()) {
+    $('preview').innerHTML = '<li>Оформление недоступно — меню на завтра не подтверждено в системе.</li>';
+    $('total').textContent = '—';
+    return;
+  }
+  const items = selectedItems();
+  const q = state.quote || { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+
+  const lines = [];
+  if ((q.comboQty || 0) > 0) lines.push(`<li>Комбо × ${q.comboQty}</li>`);
+  items.filter((i) => i.position >= 7).forEach((i) => lines.push(`<li>Позиция ${i.position} × ${i.qty}</li>`));
+
+  $('preview').innerHTML = lines.join('') || '<li>Позиции не выбраны</li>';
+  $('total').textContent = rub((q.totalAmount || 0) / 100);
+}
+
+function renderMenu(){
+  const host = $('menu');
+  host.innerHTML = '';
+
+  for(const group of GROUPS){
+    const box = document.createElement('div');
+    box.className = 'menuGroup';
+    const h = document.createElement('h4');
+    h.textContent = group.title;
+    box.appendChild(h);
+
+    for(const pos of group.positions){
+      const item = state.menu[pos];
+      if(!item?.name) continue;
+
+      const row = document.createElement('div');
+      row.className = 'menuRow' + (item.confirmed ? '' : ' menuRow--unconfirmed');
+      const left = document.createElement('div');
+      const isComboPos = pos >= 1 && pos <= 6;
+      const priceLabel = isComboPos ? '' : (item.price ? ` <span class="muted">· ${rub(item.price)}</span>` : '');
+      const rowHint = item.confirmed ? '' : '<span class="menuRow-hint">Не в меню системы на эту дату — не заказывается</span>';
+      left.innerHTML = `<strong>${pos}.</strong> ${item.name}${priceLabel}` + rowHint;
+
+      const right = document.createElement('div');
+      right.className = 'qty';
+      const minus = document.createElement('button');
+      minus.type = 'button';
+      minus.textContent = '−';
+      const val = document.createElement('span');
+      val.className = 'qtyVal';
+      val.textContent = String(item.confirmed ? (state.counters[pos] || 0) : 0);
+      const plus = document.createElement('button');
+      plus.type = 'button';
+      plus.textContent = '+';
+
+      const gate = orderingAllowed() && item.confirmed && state.submitState !== 'submitting' && state.submitState !== 'success';
+      minus.disabled = !gate;
+      plus.disabled = !gate;
+
+      minus.onclick = () => {
+        if (!orderingAllowed() || !item.confirmed || state.submitState === 'submitting' || state.submitState === 'success') return;
+        state.counters[pos] = Math.max(0, (state.counters[pos] || 0) - 1);
+        renderMenu();
+        refreshQuote();
+      };
+
+      plus.onclick = () => {
+        if (!orderingAllowed() || !item.confirmed || state.submitState === 'submitting' || state.submitState === 'success') return;
+        if (isComboPos) {
+          group.positions.forEach((p) => { state.counters[p] = 0; });
+          state.counters[pos] = 1;
+        } else {
+          state.counters[pos] = (state.counters[pos] || 0) + 1;
+        }
+        renderMenu();
+        refreshQuote();
+      };
+
+      right.append(minus, val, plus);
+      row.append(left, right);
+      box.appendChild(row);
+    }
+
+    host.appendChild(box);
+  }
+  renderPublicMenuPreview();
+}
+
+async function init(){
+  state.menuLoadStatus = 'loading';
+  state.branchName = '';
+  renderPublicMenuPreview();
+
+  try{
+    const branches = await api('/public/branches');
+    const branch = branches.find((b) => /центр/i.test(String(b.name || ''))) || branches[0];
+    if(!branch) throw new Error('Нет доступной точки');
+    state.branchId = branch.id;
+    state.branchName = String(branch.name || '').trim() || 'Точка доставки';
+
+    let rawItems = [];
+    let menuDayOk = false;
+    try{
+      const day = await api(`/public/menu-day?branchId=${encodeURIComponent(branch.id)}&date=${encodeURIComponent(DELIVERY_DATE)}`);
+      rawItems = day.items || [];
+      menuDayOk = true;
+    }catch{
+      menuDayOk = false;
+      rawItems = [];
+    }
+
+    const hasUsableApiItem = rawItems.some((it) => it && String(it.name || '').trim() && !broken(it.name));
+    if(menuDayOk && hasUsableApiItem) state.menuLoadStatus = 'live';
+    else if(menuDayOk) state.menuLoadStatus = 'degraded';
+    else state.menuLoadStatus = 'illustrative';
+
+    if (!orderingAllowed()) state.counters = {};
+
+    state.menu = {};
+    for(let pos = 1; pos <= 10; pos++){
+      const fromApi = rawItems.find((x) => x.position === pos);
+      const fallback = FALLBACK_MENU[pos] || { name:'', price:0 };
+      const trimmedApi = fromApi && !broken(fromApi.name) ? String(fromApi.name).trim() : '';
+      const confirmed = trimmedApi.length > 0;
+      const name = confirmed ? trimmedApi : fallback.name;
+      const apiPrice = fromApi ? Number(fromApi.price || 0) / 100 : 0;
+      const price = apiPrice > 0 ? apiPrice : fallback.price;
+      state.menu[pos] = { name, price, confirmed };
+    }
+
+    for (let p = 1; p <= 10; p++) {
+      if (!state.menu[p]?.confirmed) state.counters[p] = 0;
+    }
+
+    renderMenu();
+    await refreshQuote();
+  }catch(err){
+    state.menuLoadStatus = 'illustrative';
+    state.branchName = '';
+    state.branchId = '';
+    state.counters = {};
+    state.menu = {};
+    for (let pos = 1; pos <= 10; pos++) {
+      const fb = FALLBACK_MENU[pos] || { name:'', price:0 };
+      state.menu[pos] = { name: fb.name, price: Number(fb.price) || 0, confirmed: false };
+    }
+    renderMenu();
+    await refreshQuote();
+    setStatus(err.message || 'Ошибка инициализации');
+  }
+}
+
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  if (state.submitState === 'submitting' || state.submitState === 'success') return;
+
+  setStatus('');
+
+  if (!orderingAllowed()) {
+    setStatus('Заказ недоступен: меню на завтра не подтверждено в системе. Обновите страницу позже.');
+    return;
+  }
+
+  const items = selectedItems();
+  if (items.length === 0) {
+    setStatus('Выберите хотя бы одну позицию из меню, подтверждённого в системе на эту дату');
+    return;
+  }
+
+  state.submitState = 'submitting';
+  applyOrderingGate();
+  renderMenu();
+
+  try {
+    await refreshQuote();
+    const payload = {
+      branchId: state.branchId,
+      deliveryDate: DELIVERY_DATE,
+      customerName: $('name').value.trim(),
+      customerPhone: ($('phone').value || '').replace(/\D/g, '').replace(/^8/, '7').slice(0, 11),
+      address: $('address').value.trim() || undefined,
+      comment: $('comment').value.trim() || undefined,
+      paymentType: 'CARD',
+      totalAmount: Math.max(0, Math.floor(Number(state.quote?.totalAmount || 0))),
+      items
+    };
+    const attr = getAttributionForPayload();
+    if (attr) payload.attribution = attr;
+    const orderData = await api('/public/delivery-orders', { method: 'POST', body: JSON.stringify(payload) });
+    if (!orderData || typeof orderData.id !== 'string' || !orderData.id.length) {
+      throw new Error('Сервер не вернул подтверждение заказа. Попробуйте ещё раз.');
+    }
+    state.submitState = 'success';
+    state.lastAcceptedOrder = orderData;
+    setStatus('');
+    renderOrderSuccessPanel(orderData);
+  } catch (err) {
+    state.submitState = 'error';
+    setStatus(err.message || 'Не удалось отправить заявку');
+  } finally {
+    applyOrderingGate();
+    renderMenu();
+  }
+});
+
+$('fixedDate').value = getTomorrowFormatted() + ' (завтра)';
+bindPhone($('phone'));
+applyOrderingGate();
+init();
+</script>
+</body>
+</html>

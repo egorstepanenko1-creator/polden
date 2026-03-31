@@ -1,0 +1,11 @@
+{
+  "name": "polden-landing-order",
+  "private": true,
+  "description": "Публичный лендинг заказа Полдень — smoke-check без зависимостей",
+  "scripts": {
+    "smoke:public-order": "node scripts/public-order-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
