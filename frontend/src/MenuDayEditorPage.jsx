@@ -501,15 +501,18 @@ export function MenuDayEditorPage() {
                 style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
               />
             </label>
-            <label style={{ display: 'block', fontSize: 14, marginBottom: 10 }}>
+            <label style={{ display: 'block', fontSize: 14, marginBottom: 4 }}>
               Цена продажи (₽)
               <input
                 value={priceRubles}
                 onChange={(e) => setPriceRubles(e.target.value)}
-                placeholder="например 350"
+                placeholder="например 130 или 199.50"
                 style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
               />
             </label>
+            <p style={{ fontSize: 12, color: '#666', margin: '0 0 10px' }}>
+              Вводите только рубли (как на ценнике). Перевод в копейки для сервера делает форма сама.
+            </p>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 10 }}>
               <input type="checkbox" checked={editLink} onChange={(e) => setEditLink(e.target.checked)} />
