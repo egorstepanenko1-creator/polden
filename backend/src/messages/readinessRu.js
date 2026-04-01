@@ -27,6 +27,23 @@ export const BLOCKER_VK_ORDERABLE_MENU_EMPTY =
 
 export const BLOCKER_NO_BRANCH_IN_DB = 'В БД нет ни одной точки (Branch) — заказ из VK недоступен.';
 
+/**
+ * Пояснение для CRM: как зафиксирована точка для VK-меню/заказа (см. vkBranchResolve).
+ * @param {boolean} multiBranchMenuBlocked
+ * @param {boolean} hasForcedBranch
+ */
+export function VK_ORDER_PROBE_NOTE_RU(multiBranchMenuBlocked, hasForcedBranch) {
+  if (multiBranchMenuBlocked) {
+    return (
+      'Несколько точек в БД без POLDEN_VK_DEFAULT_BRANCH_ID или POLDEN_VK_ORDER_PROBE_BRANCH_ID: «Меню» не выберет точку автоматически; в «Оформить заказ» точка выбирается номером.'
+    );
+  }
+  if (hasForcedBranch) {
+    return 'Точка для меню и заказа определена (одна Branch в БД или задан env DEFAULT/PROBE).';
+  }
+  return 'Нет выбранной точки для предпросмотра (проверьте Branch в БД).';
+}
+
 /** Диагностика для CRM: почему клиент видит текст про «заявку приняту» vs заказ. */
 export const VK_DIAG_LEAD_ACCEPTED_EXPLANATION =
   'Сообщение «Заявка принята…» в боте отправляется только после полного сценария «Оставить заявку» (имя → телефон → адрес → дата → комментарий). Это не ответ API создания DeliveryOrder.';
