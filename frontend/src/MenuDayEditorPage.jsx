@@ -7,6 +7,12 @@ import {
   upsertMenuDayItem
 } from './api.js';
 import { localTomorrowISO } from './dates.js';
+import {
+  dishCategoryGroupKey,
+  filterPublishedOptionsBySlot,
+  groupPublishedDishOptions,
+  menuSlotRoleLabelRu
+} from './menuDayDishPickerGroups.js';
 
 function rubKopeks(k) {
   return `${(Number(k || 0) / 100).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ₽`;
@@ -37,26 +43,12 @@ function getRowEconomicsState(row) {
   return 'complete';
 }
 
-/**
- * Брутто-маржа в копейках: price − foodCostKopeksSnapshot (только если снимок есть; иначе null — не выдумываем).
- * @param {{ price?: number, foodCostKopeksSnapshot?: number | null }} row
- */
 function rowGrossMarginKopeks(row) {
   if (row.foodCostKopeksSnapshot == null || row.price == null) return null;
   return row.price - row.foodCostKopeksSnapshot;
 }
 
 /**
- * @param {{ price?: number, foodCostKopeksSnapshot?: number | null }} row
- */
-function rowGrossMarginPct(row) {
-  const m = rowGrossMarginKopeks(row);
-  if (m === null || row.price == null || row.price <= 0) return null;
-  return (m / row.price) * 100;
-}
-
-/**
- * Сводка по загруженным слотам (только факты из API, без догадок).
  * @param {Array<{ id: string, position: number, name: string, price: number, dishVersionId?: string | null, foodCostKopeksSnapshot?: number | null }>} rows
  */
 function computeMenuDayEconomicsSummary(rows) {
@@ -103,22 +95,24 @@ function economicsBadge(state) {
   if (state === 'linked_no_snapshot') {
     return { label: 'Рецепт без снимка', bg: '#fff8e1', color: '#e65100' };
   }
-  return { label: 'Снимок есть', bg: '#e8f5e9', color: '#1b5e20' };
+  return { label: 'Ок', bg: '#e8f5e9', color: '#1b5e20' };
 }
 
-/** Загружает только опубликованные версии блюд (через существующие kitchen endpoints). */
+/** @returns {Promise<Array<{ id: string, label: string, dishName: string, versionNumber: number, sortGroup: string }>>} */
 async function loadPublishedVersionOptions() {
   const dishes = await fetchKitchenDishes();
   const out = [];
   for (const d of dishes) {
     const vers = await fetchKitchenDishVersions(d.id);
+    const sortGroup = dishCategoryGroupKey(d);
     for (const v of vers) {
       if (v.status === 'published') {
         out.push({
           id: v.id,
-          label: `${d.name} · рецепт v${v.versionNumber}`,
+          label: `${d.name} · v${v.versionNumber}`,
           dishName: d.name,
-          versionNumber: v.versionNumber
+          versionNumber: v.versionNumber,
+          sortGroup
         });
       }
     }
@@ -137,15 +131,22 @@ export function MenuDayEditorPage() {
   const [position, setPosition] = useState('1');
   const [slotName, setSlotName] = useState('');
   const [priceRubles, setPriceRubles] = useState('');
-  /** '' = не трогать привязку при сохранении; иначе id или null через отдельный флаг */
-  const [editLink, setEditLink] = useState(false);
   const [dishVersionId, setDishVersionId] = useState('');
+  /** Показать поле названия вместо подписи с авто-заполнением из рецепта */
+  const [titleOverrideActive, setTitleOverrideActive] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [err, setErr] = useState('');
   const [info, setInfo] = useState('');
   const [lastSaved, setLastSaved] = useState(null);
+
+  const posNum = Number(position);
+  const filteredOptions = useMemo(
+    () => filterPublishedOptionsBySlot(publishedOptions, posNum),
+    [publishedOptions, posNum]
+  );
+  const groupedForSlot = useMemo(() => groupPublishedDishOptions(filteredOptions), [filteredOptions]);
 
   useEffect(() => {
     fetchBranches()
@@ -185,25 +186,46 @@ export function MenuDayEditorPage() {
       .finally(() => setLoading(false));
   }, [branchId, menuDate]);
 
+  const handlePositionChange = (raw) => {
+    setPosition(raw);
+    const pos = Number(raw);
+    if (!Number.isInteger(pos) || pos < 1) return;
+    const filtered = filterPublishedOptionsBySlot(publishedOptions, pos);
+    if (dishVersionId && !filtered.some((o) => o.id === dishVersionId)) {
+      setDishVersionId('');
+      setSlotName('');
+      setTitleOverrideActive(false);
+    }
+  };
+
   const fillFormFromRow = (row) => {
     setPosition(String(row.position));
     setSlotName(row.name);
     setPriceRubles(String((row.price / 100).toFixed(2)));
-    setEditLink(false);
     setDishVersionId(row.dishVersionId || '');
+    setTitleOverrideActive(false);
     setLastSaved(row);
     setErr('');
   };
 
   const suggestNewPosition = () => {
     const max = rows.reduce((m, r) => Math.max(m, r.position), 0);
-    setPosition(String(max + 1 || 1));
+    const next = Math.min(max + 1 || 1, 99);
+    setPosition(String(next));
     setSlotName('');
     setPriceRubles('');
-    setEditLink(true);
     setDishVersionId('');
+    setTitleOverrideActive(false);
     setLastSaved(null);
     setErr('');
+  };
+
+  const onRecipeChange = (id) => {
+    setDishVersionId(id);
+    setTitleOverrideActive(false);
+    const opt = publishedOptions.find((o) => o.id === id);
+    if (opt) setSlotName(opt.dishName);
+    else setSlotName('');
   };
 
   const onSave = async (e) => {
@@ -216,7 +238,7 @@ export function MenuDayEditorPage() {
     }
     const name = slotName.trim();
     if (!name) {
-      setErr('Укажите название блюда в меню');
+      setErr('Укажите название в меню или выберите рецепт');
       return;
     }
     const priceKopeks = kopeksFromRublesInput(priceRubles);
@@ -224,17 +246,22 @@ export function MenuDayEditorPage() {
       setErr('Некорректная цена продажи (₽)');
       return;
     }
+    if (dishVersionId) {
+      const allowed = filterPublishedOptionsBySlot(publishedOptions, pos);
+      if (!allowed.some((o) => o.id === dishVersionId)) {
+        setErr('Выбранный рецепт не подходит для этого слота по категории');
+        return;
+      }
+    }
 
     const body = {
       branchId,
       date: menuDate,
       position: pos,
       name,
-      price: priceKopeks
+      price: priceKopeks,
+      dishVersionId: dishVersionId.trim() ? dishVersionId.trim() : null
     };
-    if (editLink) {
-      body.dishVersionId = dishVersionId.trim() || null;
-    }
 
     setLoading(true);
     setErr('');
@@ -264,11 +291,14 @@ export function MenuDayEditorPage() {
 
   const menuSummary = useMemo(() => computeMenuDayEconomicsSummary(rows), [rows]);
 
+  const slotHint = menuSlotRoleLabelRu(posNum);
+  const noRecipesInCategory = filteredOptions.length === 0 && publishedOptions.length > 0;
+
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 1180, margin: '0 auto', padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Меню на день · редактор</h1>
-      <p style={{ color: '#555', marginTop: 0 }}>
-        Слоты меню для витрины: название и цена продажи; опционально — опубликованная версия рецепта и замороженная себестоимость (как на бэкенде при сохранении).
+      <h1 style={{ marginTop: 0 }}>Меню на день</h1>
+      <p style={{ color: '#555', marginTop: 0, fontSize: 15 }}>
+        Завтрашнее меню: выберите слот → рецепт из списка для этой категории → цена в рублях → сохранить. Название для витрины подставляется из блюда.
       </p>
 
       {err ? (
@@ -310,100 +340,76 @@ export function MenuDayEditorPage() {
           <button type="button" onClick={loadMenu} disabled={loading || !branchId} style={{ padding: '8px 16px' }}>
             {loading ? '…' : 'Загрузить меню'}
           </button>
-          <button type="button" onClick={refreshPublishedOptions} disabled={loadingOptions} style={{ padding: '8px 16px' }}>
-            {loadingOptions ? 'Версии…' : 'Обновить список рецептов'}
+          <button
+            type="button"
+            onClick={refreshPublishedOptions}
+            disabled={loadingOptions}
+            style={{ padding: '8px 12px', fontSize: 13, color: '#555' }}
+          >
+            {loadingOptions ? 'Рецепты…' : 'Обновить список рецептов'}
           </button>
         </div>
       </div>
 
       {rows.length > 0 ? (
-        <div style={{ ...cardStyle(), background: '#f5f9ff', borderColor: '#bbdefb' }} aria-labelledby="menu-econ-summary">
-          <h2 id="menu-econ-summary" style={{ marginTop: 0, fontSize: '1.05rem' }}>
-            Экономика меню на дату (загруженные слоты)
-          </h2>
-          <p style={{ fontSize: 12, color: '#555', marginTop: 0 }}>
-            Суммы маржи и снимков — только по строкам, где есть и цена, и замороженный снимок. Без снимка маржу не показываем.
+        <details style={{ ...cardStyle(), background: '#f8f9fa' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '1.02rem' }}>
+            Экономика меню (для контроля)
+          </summary>
+          <p style={{ fontSize: 12, color: '#555', marginTop: 8 }}>
+            Сводка по загруженным слотам. Детали по строке — после сохранения, ниже в блоке «после сохранения».
           </p>
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
               gap: 12,
-              fontSize: 14
+              fontSize: 14,
+              marginTop: 8
             }}
           >
             <div>
-              <div style={{ color: '#666', fontSize: 12 }}>Слотов в меню</div>
+              <div style={{ color: '#666', fontSize: 12 }}>Слотов</div>
               <div style={{ fontWeight: 700 }}>{menuSummary.slotCount}</div>
             </div>
             <div>
-              <div style={{ color: '#666', fontSize: 12 }}>С привязкой к рецепту</div>
+              <div style={{ color: '#666', fontSize: 12 }}>С рецептом</div>
               <div style={{ fontWeight: 700 }}>{menuSummary.linkedCount}</div>
             </div>
             <div>
-              <div style={{ color: '#666', fontSize: 12 }}>Без полной экономики</div>
-              <div style={{ fontWeight: 700, color: menuSummary.missingEconomicsCount ? '#e65100' : undefined }}>
-                {menuSummary.missingEconomicsCount}
-              </div>
-              <div style={{ fontSize: 11, color: '#888' }}>вручную или рецепт без снимка</div>
-            </div>
-            <div>
-              <div style={{ color: '#666', fontSize: 12 }}>Σ цен продажи</div>
+              <div style={{ color: '#666', fontSize: 12 }}>Σ цен в меню</div>
               <div style={{ fontWeight: 700 }}>{rubKopeks(menuSummary.sumSellKopeks)}</div>
             </div>
             <div>
-              <div style={{ color: '#666', fontSize: 12 }}>Σ себестоимости (снимки)</div>
-              <div style={{ fontWeight: 700 }}>{rubKopeks(menuSummary.sumSnapshotKopeks)}</div>
-              <div style={{ fontSize: 11, color: '#888' }}>строк: {menuSummary.snapshotRowCount}</div>
-            </div>
-            <div>
-              <div style={{ color: '#666', fontSize: 12 }}>Σ брутто-маржа</div>
-              <div
-                style={{
-                  fontWeight: 700,
-                  color:
-                    menuSummary.totalGrossMarginKopeks < 0
-                      ? '#b00020'
-                      : menuSummary.marginRowCount
-                        ? '#1b5e20'
-                        : undefined
-                }}
-              >
+              <div style={{ color: '#666', fontSize: 12 }}>Σ маржа (где есть снимок)</div>
+              <div style={{ fontWeight: 700 }}>
                 {menuSummary.marginRowCount ? rubKopeks(menuSummary.totalGrossMarginKopeks) : '—'}
-              </div>
-              <div style={{ fontSize: 11, color: '#888' }}>
-                {menuSummary.marginRowCount ? `строк: ${menuSummary.marginRowCount}` : 'нет строк с снимком'}
               </div>
             </div>
           </div>
-        </div>
+        </details>
       ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={cardStyle()}>
           <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Слоты ({rows.length})</h2>
           {rows.length === 0 ? (
-            <p style={{ color: '#888' }}>Нет строк — загрузите или создайте новый слот.</p>
+            <p style={{ color: '#888' }}>Пока пусто — загрузите меню или добавьте слот справа.</p>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
                 <thead>
                   <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
                     <th style={{ padding: '8px 6px' }}>#</th>
-                    <th style={{ padding: '8px 6px' }}>Название</th>
+                    <th style={{ padding: '8px 6px' }}>В меню</th>
                     <th style={{ padding: '8px 6px' }}>Цена</th>
-                    <th style={{ padding: '8px 6px' }}>Статус</th>
-                    <th style={{ padding: '8px 6px' }}>Себест.</th>
-                    <th style={{ padding: '8px 6px' }}>Маржа</th>
-                    <th style={{ padding: '8px 6px' }}>%</th>
+                    <th style={{ padding: '8px 6px' }}>Связь</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => {
                     const state = getRowEconomicsState(r);
                     const badge = economicsBadge(state);
-                    const mk = rowGrossMarginKopeks(r);
-                    const mp = rowGrossMarginPct(r);
                     return (
                       <tr
                         key={r.id}
@@ -419,23 +425,12 @@ export function MenuDayEditorPage() {
                         style={{
                           cursor: 'pointer',
                           borderBottom: '1px solid #eee',
-                          background: lastSaved?.id === r.id ? '#e3f2fd' : 'transparent',
-                          borderLeft:
-                            state === 'complete'
-                              ? '3px solid #2e7d32'
-                              : state === 'linked_no_snapshot'
-                                ? '3px solid #fb8c00'
-                                : '3px solid #b0bec5'
+                          background: lastSaved?.id === r.id ? '#e3f2fd' : 'transparent'
                         }}
                       >
-                        <td style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{r.position}</td>
-                        <td style={{ padding: '8px 6px', maxWidth: 180 }}>
+                        <td style={{ padding: '8px 6px', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.position}</td>
+                        <td style={{ padding: '8px 6px', maxWidth: 220 }}>
                           <div style={{ fontWeight: 600 }}>{r.name}</div>
-                          {r.dishVersionId ? (
-                            <div style={{ fontSize: 11, color: '#555', wordBreak: 'break-all' }}>
-                              <code>{r.dishVersionId.slice(0, 10)}…</code>
-                            </div>
-                          ) : null}
                         </td>
                         <td style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{rubKopeks(r.price)}</td>
                         <td style={{ padding: '8px 6px' }}>
@@ -453,20 +448,6 @@ export function MenuDayEditorPage() {
                             {badge.label}
                           </span>
                         </td>
-                        <td style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>
-                          {r.foodCostKopeksSnapshot != null ? rubKopeks(r.foodCostKopeksSnapshot) : '—'}
-                        </td>
-                        <td
-                          style={{
-                            padding: '8px 6px',
-                            whiteSpace: 'nowrap',
-                            color: mk == null ? '#888' : mk >= 0 ? '#1b5e20' : '#b00020',
-                            fontWeight: mk != null ? 600 : 400
-                          }}
-                        >
-                          {mk != null ? rubKopeks(mk) : '—'}
-                        </td>
-                        <td style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{pctFmt(mp)}</td>
                       </tr>
                     );
                   })}
@@ -474,113 +455,155 @@ export function MenuDayEditorPage() {
               </table>
             </div>
           )}
-          <p style={{ fontSize: 12, color: '#666', marginBottom: 0 }}>
-            Строка таблицы — выбрать слот для редактирования справа.
-          </p>
+          <p style={{ fontSize: 13, color: '#666', marginBottom: 0 }}>Нажмите строку, чтобы редактировать слот справа.</p>
           <button type="button" onClick={suggestNewPosition} style={{ marginTop: 12, padding: '8px 12px' }}>
-            Новый слот
+            Следующий слот
           </button>
         </div>
 
         <div style={cardStyle()}>
-          <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Редактирование слота</h2>
+          <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Слот: {slotHint}</h2>
           <form onSubmit={onSave}>
             <label style={{ display: 'block', fontSize: 14, marginBottom: 10 }}>
-              Позиция (1–99)
+              Номер слота (1–99)
               <input
                 value={position}
-                onChange={(e) => setPosition(e.target.value)}
+                onChange={(e) => handlePositionChange(e.target.value)}
                 style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
               />
             </label>
-            <label style={{ display: 'block', fontSize: 14, marginBottom: 10 }}>
-              Название в меню
-              <input
-                value={slotName}
-                onChange={(e) => setSlotName(e.target.value)}
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
-              />
-            </label>
-            <label style={{ display: 'block', fontSize: 14, marginBottom: 4 }}>
-              Цена продажи (₽)
-              <input
-                value={priceRubles}
-                onChange={(e) => setPriceRubles(e.target.value)}
-                placeholder="например 130 или 199.50"
-                style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
-              />
-            </label>
-            <p style={{ fontSize: 12, color: '#666', margin: '0 0 10px' }}>
-              Вводите только рубли (как на ценнике). Перевод в копейки для сервера делает форма сама.
-            </p>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 10 }}>
-              <input type="checkbox" checked={editLink} onChange={(e) => setEditLink(e.target.checked)} />
-              Задать или сбросить привязку к опубликованному рецепту
+            <label style={{ display: 'block', fontSize: 14, marginBottom: 6 }}>
+              Рецепт (только подходящая категория)
+              <select
+                value={dishVersionId}
+                onChange={(e) => onRecipeChange(e.target.value)}
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
+              >
+                <option value="">— без рецепта (название вручную) —</option>
+                {groupedForSlot.map((g) => (
+                  <optgroup key={g.group} label={g.labelRu}>
+                    {g.items.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </label>
-            {editLink ? (
-              <label style={{ display: 'block', fontSize: 14, marginBottom: 10 }}>
-                Версия рецепта (только published)
-                <select
-                  value={dishVersionId}
-                  onChange={(e) => setDishVersionId(e.target.value)}
-                  style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
-                >
-                  <option value="">— нет привязки (сбросить снимок) —</option>
-                  {publishedOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {noRecipesInCategory ? (
+              <p style={{ fontSize: 12, color: '#e65100', marginTop: 0, marginBottom: 10 }}>
+                В этой категории нет опубликованных рецептов. Добавьте блюдо в кухне или выберите слот 10+ для любых категорий.
+              </p>
             ) : (
-              <p style={{ fontSize: 13, color: '#666', marginTop: 0 }}>
-                Если галочка выключена, при сохранении связь с рецептом и снимок себестоимости <strong>не меняются</strong> (удобно править только название/цену).
+              <p style={{ fontSize: 12, color: '#666', marginTop: 0, marginBottom: 10 }}>
+                Для слотов 1–9 список уже отфильтрован. Слот 10 и выше — все категории.
               </p>
             )}
 
-            <button type="submit" disabled={loading} style={{ padding: '10px 20px', marginTop: 8 }}>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Название в меню (витрина)</div>
+              {!titleOverrideActive && dishVersionId ? (
+                <div>
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      background: '#f0f4f8',
+                      borderRadius: 8,
+                      fontSize: 15,
+                      marginBottom: 8
+                    }}
+                  >
+                    {slotName || '—'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTitleOverrideActive(true)}
+                    style={{ padding: '6px 12px', fontSize: 13 }}
+                  >
+                    Изменить название
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={slotName}
+                    onChange={(e) => setSlotName(e.target.value)}
+                    placeholder="Как видит клиент"
+                    style={{ display: 'block', width: '100%', padding: 8 }}
+                  />
+                  {dishVersionId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTitleOverrideActive(false);
+                        const opt = publishedOptions.find((o) => o.id === dishVersionId);
+                        if (opt) setSlotName(opt.dishName);
+                      }}
+                      style={{ marginTop: 6, padding: '4px 10px', fontSize: 12 }}
+                    >
+                      Вернуть название из рецепта
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+
+            <label style={{ display: 'block', fontSize: 14, marginBottom: 4 }}>
+              Цена, ₽
+              <input
+                value={priceRubles}
+                onChange={(e) => setPriceRubles(e.target.value)}
+                placeholder="например 130"
+                style={{ display: 'block', width: '100%', marginTop: 4, padding: 8 }}
+              />
+            </label>
+            <p style={{ fontSize: 12, color: '#666', margin: '0 0 14px' }}>Только рубли; для сервера пересчёт выполняется сам.</p>
+
+            <button type="submit" disabled={loading} style={{ padding: '12px 22px', fontWeight: 600, fontSize: 15 }}>
               Сохранить слот
             </button>
           </form>
 
           {lastSaved ? (
-            <div
-              style={{
-                marginTop: 16,
-                padding: 12,
-                background: '#fff',
-                border: '1px solid #e0e0e0',
-                borderRadius: 8,
-                fontSize: 14
-              }}
-            >
-              <strong>Экономика после сохранения</strong>
-              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                <li>
-                  Рецепт (dishVersionId):{' '}
-                  {lastSaved.dishVersionId ? <code style={{ wordBreak: 'break-all' }}>{lastSaved.dishVersionId}</code> : '—'}
-                </li>
-                <li>
-                  Себестоимость (снимок):{' '}
-                  {lastSaved.foodCostKopeksSnapshot != null ? rubKopeks(lastSaved.foodCostKopeksSnapshot) : '—'}
-                </li>
-                <li>
-                  Время снимка:{' '}
-                  {lastSaved.foodCostSnapshottedAt
-                    ? new Date(lastSaved.foodCostSnapshottedAt).toLocaleString('ru-RU')
-                    : '—'}
-                </li>
-                <li>Цена продажи: {rubKopeks(lastSaved.price)}</li>
-                {marginKopeks != null ? (
-                  <li style={{ color: marginKopeks >= 0 ? '#1b5e20' : '#b00020' }}>
-                    Маржа (брутто): {rubKopeks(marginKopeks)}
-                    {marginPctLast != null ? ` (${pctFmt(marginPctLast)})` : null}
+            <details style={{ marginTop: 16 }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#555' }}>
+                Подробности после сохранения (себестоимость, id)
+              </summary>
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 12,
+                  background: '#fff',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 8,
+                  fontSize: 13
+                }}
+              >
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  <li>
+                    Рецепт:{' '}
+                    {lastSaved.dishVersionId ? (
+                      <code style={{ wordBreak: 'break-all', fontSize: 11 }}>{lastSaved.dishVersionId}</code>
+                    ) : (
+                      '—'
+                    )}
                   </li>
-                ) : null}
-              </ul>
-            </div>
+                  <li>
+                    Себестоимость (снимок):{' '}
+                    {lastSaved.foodCostKopeksSnapshot != null ? rubKopeks(lastSaved.foodCostKopeksSnapshot) : '—'}
+                  </li>
+                  <li>Цена: {rubKopeks(lastSaved.price)}</li>
+                  {marginKopeks != null ? (
+                    <li style={{ color: marginKopeks >= 0 ? '#1b5e20' : '#b00020' }}>
+                      Маржа: {rubKopeks(marginKopeks)}
+                      {marginPctLast != null ? ` (${pctFmt(marginPctLast)})` : null}
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            </details>
           ) : null}
         </div>
       </div>
