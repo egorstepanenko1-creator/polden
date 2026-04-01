@@ -183,6 +183,8 @@
     .qtyVal{min-width:22px;text-align:center;font-weight:700}
 
     .sum{display:flex;justify-content:space-between;align-items:center;margin:12px 0;font-weight:700;font-size:17px}
+    .sum-line{display:flex;justify-content:space-between;align-items:center;margin:6px 0;font-weight:600;font-size:15px;color:var(--text)}
+    .sum-line .muted-sum{font-weight:500;color:var(--muted);font-size:13px}
     .btn{width:100%;border:none;background:var(--g);color:#fff;padding:16px;border-radius:14px;font-weight:700;font-size:16px;cursor:pointer;transition:background .2s}
     .btn:hover{background:var(--g2)}
     .btn:disabled{opacity:.6;cursor:not-allowed}
@@ -414,7 +416,7 @@
       <div class="wrap-inner">
         <p class="order-kicker">Онлайн-заявка</p>
         <h2 class="order-title">Соберите обед и подтвердите заявку</h2>
-        <p class="order-sub" id="order-context-line">Дата доставки — завтра. После отправки свяжемся для подтверждения.</p>
+        <p class="order-sub" id="order-context-line">Дата доставки — завтра. Бесплатная доставка от 400 ₽; ниже 400 ₽ — доставка 50 ₽. После отправки свяжемся для подтверждения.</p>
         <div id="order-context-bar" class="order-context-bar" aria-live="polite" hidden></div>
         <div id="order-gate-banner" class="order-gate-banner" role="status" aria-live="polite"></div>
         <div id="order-success-panel" class="order-success-panel" role="region" aria-labelledby="order-success-title" hidden></div>
@@ -459,7 +461,9 @@
             <label class="polden-hp" for="polden_hp" aria-hidden="true">Не заполнять</label>
             <input class="polden-hp" type="text" id="polden_hp" name="polden_hp" autocomplete="off" tabindex="-1" aria-hidden="true" value="" />
 
-            <div class="sum"><span>К оплате по меню</span><span id="total">0 ₽</span></div>
+            <div class="sum-line"><span>Позиции</span><span id="quote-subtotal-form">0 ₽</span></div>
+            <div class="sum-line"><span>Доставка</span><span id="quote-delivery-form">—</span></div>
+            <div class="sum"><span>Итого</span><span id="total">0 ₽</span></div>
             <button id="submit" class="btn" type="submit">Подтвердить заявку</button>
             <div id="status" class="status"></div>
           </form>
@@ -468,6 +472,8 @@
             <h3 class="title">Сводка</h3>
             <p class="muted">Состав и сумма пересчитываются при каждом изменении. Итог совпадает с тем, что уйдёт на сервер.</p>
             <ul id="preview" class="preview muted"></ul>
+            <div class="sum-line"><span>Позиции</span><span id="quote-subtotal-aside">0 ₽</span></div>
+            <div class="sum-line"><span>Доставка</span><span id="quote-delivery-aside">—</span></div>
             <div class="sum"><span>Итого</span><span id="total-aside">0 ₽</span></div>
             <p id="preview-sum-sub" class="sum-sub"></p>
             <p class="muted" style="font-size:12px;margin-top:12px">Оплата и финальные условия — при подтверждении с оператором.</p>
@@ -560,6 +566,10 @@ const GROUPS = [
   { key:'salad', title:'Салат', positions:[5,6] },
   { key:'extra', title:'Дополнительно', positions:[7,8,9,10] },
 ];
+function emptyQuote(){
+  return { totalAmount:0, itemsSubtotalKopeks:0, deliveryFeeKopeks:0, comboQty:0, comboUnitPrice:0, extrasTotal:0, deliveryRuleSummary:'' };
+}
+const DELIVERY_HINT_RU = ' Бесплатная доставка от 400 ₽; ниже 400 ₽ — доставка 50 ₽.';
 const state = {
   branchId:'',
   branchName:'',
@@ -567,7 +577,7 @@ const state = {
   menuLoadStatus:'loading',
   menu:{},
   counters:{},
-  quote:{ totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 },
+  quote: emptyQuote(),
   /** idle | submitting | success | error */
   submitState:'idle',
   lastAcceptedOrder:null
@@ -752,7 +762,7 @@ function renderPublicMenuPreview(){
     ctx.innerHTML = '<p class="menu-preview-line">Загружаем меню и точку доставки…</p><div class="menu-preview-badges"><span class="menu-preview-badge menu-preview-badge--wait">Загрузка</span></div>';
     cardsHost.innerHTML = '<div class="menu-preview-skeleton">' + Array.from({ length: 8 }, () => '<div class="menu-preview-skel-item"></div>').join('') + '</div>';
     foot.textContent = '';
-    if (orderLine) orderLine.textContent = 'Доставка — завтра (' + dateHuman + '). После загрузки список здесь совпадёт с формой заказа ниже.';
+    if (orderLine) orderLine.textContent = 'Доставка — завтра (' + dateHuman + '). После загрузки список здесь совпадёт с формой заказа ниже.' + DELIVERY_HINT_RU;
     updateOrderContextBar();
     applyOrderingGate();
     return;
@@ -779,9 +789,16 @@ function renderPublicMenuPreview(){
 
   if (orderLine) {
     if (state.branchName && state.branchId) {
-      orderLine.textContent = 'Точка: ' + state.branchName + ' · Доставка ' + dateHuman + ' (завтра). После отправки свяжемся для подтверждения.';
+      orderLine.textContent =
+        'Точка: ' +
+        state.branchName +
+        ' · Доставка ' +
+        dateHuman +
+        ' (завтра). После отправки свяжемся для подтверждения.' +
+        DELIVERY_HINT_RU;
     } else {
-      orderLine.textContent = 'Дата доставки — завтра (' + dateHuman + '). После отправки свяжемся для подтверждения.';
+      orderLine.textContent =
+        'Дата доставки — завтра (' + dateHuman + '). После отправки свяжемся для подтверждения.' + DELIVERY_HINT_RU;
     }
   }
 
@@ -920,7 +937,13 @@ function renderOrderSuccessPanel(order){
     (branchName ? '<p class="order-success-meta"><strong>Точка:</strong> ' + branchName + '</p>' : '') +
     (cust ? '<p class="order-success-meta"><strong>Имя:</strong> ' + cust + '</p>' : '') +
     (phoneDisp ? '<p class="order-success-meta"><strong>Телефон:</strong> ' + phoneDisp + '</p>' : '') +
-    '<p class="order-success-meta"><strong>Сумма по расчёту:</strong> ' + escapeHtml(rubFromMinor(order.totalAmount)) + '</p>' +
+    (order.itemsSubtotalKopeks != null
+      ? '<p class="order-success-meta"><strong>Позиции:</strong> ' + escapeHtml(rubFromMinor(order.itemsSubtotalKopeks)) + '</p>' +
+        '<p class="order-success-meta"><strong>Доставка:</strong> ' +
+        escapeHtml((order.deliveryFeeKopeks || 0) > 0 ? rubFromMinor(order.deliveryFeeKopeks) : 'бесплатно') +
+        '</p>'
+      : '') +
+    '<p class="order-success-meta"><strong>Итого:</strong> ' + escapeHtml(rubFromMinor(order.totalAmount)) + '</p>' +
     '<p class="order-success-meta"><strong>Состав:</strong></p>' +
     listHtml +
     idHtml +
@@ -985,13 +1008,13 @@ function selectedItems(){
 
 async function refreshQuote(){
   if (!orderingAllowed()) {
-    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    state.quote = emptyQuote();
     renderSummary();
     return;
   }
   const items = selectedItems();
   if(!state.branchId || items.length === 0){
-    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    state.quote = emptyQuote();
     renderSummary();
     return;
   }
@@ -1000,9 +1023,9 @@ async function refreshQuote(){
       method:'POST',
       body: JSON.stringify({ branchId: state.branchId, deliveryDate: DELIVERY_DATE, items })
     });
-    state.quote = quote || { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    state.quote = quote || emptyQuote();
   }catch{
-    state.quote = { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+    state.quote = emptyQuote();
   }
   renderSummary();
 }
@@ -1011,14 +1034,23 @@ function renderSummary(){
   if (!orderingAllowed()) {
     $('preview').innerHTML = '<li>Оформление недоступно — ждём подтверждённое меню на завтра.</li>';
     $('total').textContent = '—';
+    const sf = $('quote-subtotal-form');
+    const df = $('quote-delivery-form');
+    if (sf) sf.textContent = '—';
+    if (df) df.textContent = '—';
     const ta = $('total-aside');
     if (ta) ta.textContent = '—';
+    const sa = $('quote-subtotal-aside');
+    const da = $('quote-delivery-aside');
+    if (sa) sa.textContent = '—';
+    if (da) da.textContent = '—';
     const sub = $('preview-sum-sub');
     if (sub) sub.textContent = '';
     return;
   }
   const items = selectedItems();
-  const q = state.quote || { totalAmount:0, comboQty:0, comboUnitPrice:0, extrasTotal:0 };
+  const q = state.quote || emptyQuote();
+  const subK = q.itemsSubtotalKopeks != null ? q.itemsSubtotalKopeks : Math.max(0, (q.totalAmount || 0) - (q.deliveryFeeKopeks || 0));
 
   const lines = [];
   if ((q.comboQty || 0) > 0) lines.push(`<li>Комбо × ${q.comboQty}</li>`);
@@ -1026,9 +1058,19 @@ function renderSummary(){
 
   $('preview').innerHTML = lines.join('') || '<li>Позиции не выбраны</li>';
   const totalStr = rub((q.totalAmount || 0) / 100);
+  const subStr = items.length ? rub(subK / 100) : '0 ₽';
+  const feeStr = !items.length ? '—' : ((q.deliveryFeeKopeks || 0) > 0 ? rub((q.deliveryFeeKopeks || 0) / 100) : 'бесплатно');
   $('total').textContent = totalStr;
+  const sf = $('quote-subtotal-form');
+  const df = $('quote-delivery-form');
+  if (sf) sf.textContent = subStr;
+  if (df) df.textContent = feeStr;
   const ta = $('total-aside');
   if (ta) ta.textContent = totalStr;
+  const sa = $('quote-subtotal-aside');
+  const da = $('quote-delivery-aside');
+  if (sa) sa.textContent = subStr;
+  if (da) da.textContent = feeStr;
   const sub = $('preview-sum-sub');
   if (sub) {
     const parts = [];
@@ -1036,7 +1078,8 @@ function renderSummary(){
       parts.push('Комбо ' + q.comboQty + '× по ' + rub((q.comboUnitPrice || 0) / 100));
     }
     if ((q.extrasTotal || 0) > 0) parts.push('Дополнения ' + rub((q.extrasTotal || 0) / 100));
-    sub.textContent = parts.length ? parts.join(' · ') : 'Сумма по расчёту сервера после выбора позиций.';
+    const rule = q.deliveryRuleSummary || 'Бесплатная доставка от 400 ₽; ниже 400 ₽ — доставка 50 ₽.';
+    sub.textContent = parts.length ? parts.join(' · ') + ' · ' + rule : rule;
   }
 }
 

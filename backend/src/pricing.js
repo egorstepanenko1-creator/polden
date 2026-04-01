@@ -1,7 +1,10 @@
 /**
- * Сумма по позициям меню на дату (копейки). Авторитетная сумма для quote и create.
+ * Сумма по позициям меню на дату (копейки) + единое правило доставки.
+ * Авторитетная сумма для quote и create.
  * @param {import('@prisma/client').PrismaClient} prisma
  */
+import { DELIVERY_RULE_SHORT_RU, deliveryFeeKopeksFromSubtotal } from './deliveryFeePolicy.js';
+
 export async function computeQuoteKopeks(prisma, branchId, deliveryDate, items) {
   if (!branchId || !deliveryDate || !Array.isArray(items) || items.length === 0) {
     throw new Error('branchId, deliveryDate and non-empty items required');
@@ -12,7 +15,7 @@ export async function computeQuoteKopeks(prisma, branchId, deliveryDate, items) 
   });
   const priceByPos = new Map(menuRows.map((r) => [r.position, r]));
 
-  let totalAmount = 0;
+  let itemsSubtotalKopeks = 0;
   let comboQty = 0;
   let comboUnitPrice = 0;
   let extrasTotal = 0;
@@ -30,7 +33,7 @@ export async function computeQuoteKopeks(prisma, branchId, deliveryDate, items) 
     if (!row || !String(row.name || '').trim()) {
       throw new Error(`Menu position ${position} not available for this date`);
     }
-    totalAmount += row.price * qty;
+    itemsSubtotalKopeks += row.price * qty;
     if (position >= 7) extrasTotal += row.price * qty;
   }
 
@@ -46,10 +49,16 @@ export async function computeQuoteKopeks(prisma, branchId, deliveryDate, items) 
     if (q1 === 0 || q2 === 0 || q3 === 0) comboQty = 0;
   }
 
+  const deliveryFeeKopeks = deliveryFeeKopeksFromSubtotal(itemsSubtotalKopeks);
+  const totalAmount = itemsSubtotalKopeks + deliveryFeeKopeks;
+
   return {
+    itemsSubtotalKopeks,
+    deliveryFeeKopeks,
     totalAmount,
     comboQty,
     comboUnitPrice,
-    extrasTotal
+    extrasTotal,
+    deliveryRuleSummary: DELIVERY_RULE_SHORT_RU
   };
 }

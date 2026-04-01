@@ -1,31 +1,23 @@
 /**
  * Структурированный заказ VK → DeliveryOrder через createDeliveryOrderFromInput.
- * При сбое меню/парсинга — сообщение пользователю + возможность «Оставить заявку».
+ * Пошаговый выбор категорий + свободный ввод; при сбое — «Оставить заявку».
  */
 
-import { computeQuoteKopeks } from './pricing.js';
 import { createDeliveryOrderFromInput, normalizePhone } from './deliveryOrderService.js';
 import { parseVkCartLine } from './vkCartParse.js';
-import { loadOrderableMenuRows, formatVkOrderableMenuText } from './vkOrderMenu.js';
+import { loadOrderableMenuRows } from './vkOrderMenu.js';
 import { serverLocalTomorrowISO } from './vkOrderDates.js';
-import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
+import { loadBranchesAndVkForced } from './vkBranchResolve.js';
+import { buildVkPrimaryMenuFromCrm } from './vkMenuFromCrm.js';
+import { ORDER_STATES, isStructuredOrderState, VK_GUIDE_STATES } from './vkOrderFlowConstants.js';
+import {
+  processVkGuideFlow,
+  startVkOrderGuide,
+  formatVkOrderReviewMessage
+} from './vkOrderGuidedFlow.js';
 import * as VkMsg from './messages/vkBotRu.js';
 
-export const ORDER_STATES = {
-  PICK_BRANCH: 'ORDER_PICK_BRANCH',
-  AWAIT_ITEMS: 'ORDER_AWAIT_ITEMS',
-  REVIEW: 'ORDER_REVIEW',
-  C_NAME: 'ORDER_C_NAME',
-  C_PHONE: 'ORDER_C_PHONE',
-  C_ADDR: 'ORDER_C_ADDR',
-  C_COMMENT: 'ORDER_C_COMMENT'
-};
-
-const ALL_ORDER = new Set(Object.values(ORDER_STATES));
-
-export function isStructuredOrderState(s) {
-  return ALL_ORDER.has(String(s || ''));
-}
+export { ORDER_STATES, isStructuredOrderState };
 
 function rubK(kopeks) {
   return (Number(kopeks) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
@@ -41,7 +33,8 @@ async function clearOrderDraft(prisma, peerId) {
     data: {
       draftBranchId: null,
       draftDeliveryDate: null,
-      draftCartJson: '[]'
+      draftCartJson: '[]',
+      draftVkGuideJson: '{}'
     }
   });
 }
@@ -61,7 +54,7 @@ function buildVkOrderAttribution(peerId, vkUserId) {
  * @param {import('@prisma/client').PrismaClient} prisma
  */
 export async function startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMessage, keyboardJson) {
-  const branches = await prisma.branch.findMany({ orderBy: { name: 'asc' } });
+  const { branches, forced } = await loadBranchesAndVkForced(prisma);
   if (!branches.length) {
     await vkSendMessage(
       peerId,
@@ -73,41 +66,8 @@ export async function startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMes
 
   const tomorrow = serverLocalTomorrowISO();
 
-  const forcedBranchId = (process.env.POLDEN_VK_DEFAULT_BRANCH_ID || '').trim();
-  if (forcedBranchId) {
-    const forced = branches.find((b) => b.id === forcedBranchId);
-    if (forced) {
-      const rows = await loadOrderableMenuRows(prisma, forced.id, tomorrow);
-      if (!rows.length) {
-        await vkSendMessage(
-          peerId,
-          `${VkMsg.MSG_ORDER_MENU_EMPTY}\n\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
-          { keyboardJson }
-        );
-        return;
-      }
-      const menuText = formatVkOrderableMenuText(rows);
-      await prisma.vkConversationState.update({
-        where: { peerId },
-        data: {
-          currentState: ORDER_STATES.AWAIT_ITEMS,
-          draftBranchId: forced.id,
-          draftDeliveryDate: tomorrow,
-          draftCartJson: '[]'
-        }
-      });
-      await vkSendMessage(
-        peerId,
-        `${VkMsg.MSG_ORDER_INTRO_SINGLE_BRANCH(forced.name, tomorrow)}\n\n${menuText}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}`,
-        { keyboardJson: null }
-      );
-      return;
-    }
-  }
-
-  if (branches.length === 1) {
-    const b = branches[0];
-    const rows = await loadOrderableMenuRows(prisma, b.id, tomorrow);
+  if (forced) {
+    const rows = await loadOrderableMenuRows(prisma, forced.id, tomorrow);
     if (!rows.length) {
       await vkSendMessage(
         peerId,
@@ -116,21 +76,14 @@ export async function startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMes
       );
       return;
     }
-    const menuText = formatVkOrderableMenuText(rows);
-    await prisma.vkConversationState.update({
-      where: { peerId },
-      data: {
-        currentState: ORDER_STATES.AWAIT_ITEMS,
-        draftBranchId: b.id,
-        draftDeliveryDate: tomorrow,
-        draftCartJson: '[]'
-      }
-    });
-    await vkSendMessage(
-      peerId,
-      `${VkMsg.MSG_ORDER_INTRO_SINGLE_BRANCH(b.name, tomorrow)}\n\n${menuText}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}`,
-      { keyboardJson: null }
-    );
+    const started = await startVkOrderGuide(prisma, peerId, forced.id, tomorrow, vkSendMessage, forced.name);
+    if (!started) {
+      await vkSendMessage(
+        peerId,
+        `${VkMsg.MSG_ORDER_MENU_EMPTY}\n\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
+        { keyboardJson }
+      );
+    }
     return;
   }
 
@@ -141,7 +94,8 @@ export async function startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMes
       currentState: ORDER_STATES.PICK_BRANCH,
       draftDeliveryDate: tomorrow,
       draftBranchId: null,
-      draftCartJson: '[]'
+      draftCartJson: '[]',
+      draftVkGuideJson: '{}'
     }
   });
   await vkSendMessage(
@@ -217,21 +171,18 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
   if (wantMenu) {
     await clearOrderDraft(prisma, peerId);
     await prisma.vkConversationState.update({ where: { peerId }, data: { currentState: 'IDLE' } });
-    const item = await getCurrentVkMenuDailyItem(prisma);
-    let reply;
-    let menuId = null;
-    if (item) {
-      reply = formatVkMenuMessage(item);
-      menuId = item.id;
-    } else {
-      reply = VkMsg.MSG_MENU_EMPTY;
-    }
+    const built = await buildVkPrimaryMenuFromCrm(prisma);
     await prisma.vkConversationState.update({
       where: { peerId },
-      data: { menuContentItemId: menuId }
+      data: { menuContentItemId: built.menuContentItemId }
     });
-    await vkSendMessage(peerId, `${reply}\n\n${VkMsg.MSG_MENU_FOOTER}`, { keyboardJson });
+    await vkSendMessage(peerId, `${built.text}\n\n${VkMsg.MSG_MENU_FOOTER}`, { keyboardJson });
     return { handled: true };
+  }
+
+  if (VK_GUIDE_STATES.has(state.currentState)) {
+    const gr = await processVkGuideFlow(prisma, { peerId, text, cmd, state, vkSendMessage });
+    if (gr.handled) return { handled: true };
   }
 
   switch (state.currentState) {
@@ -255,21 +206,16 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
         );
         return { handled: true };
       }
-      await prisma.vkConversationState.update({
-        where: { peerId },
-        data: {
-          draftBranchId: b.id,
-          draftDeliveryDate: date,
-          currentState: O.AWAIT_ITEMS,
-          draftCartJson: '[]'
-        }
-      });
-      const menuText = formatVkOrderableMenuText(rows);
-      await vkSendMessage(
-        peerId,
-        `${VkMsg.MSG_ORDER_BRANCH_PICKED(b.name, date)}\n\n${menuText}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}`,
-        { keyboardJson: null }
-      );
+      const started = await startVkOrderGuide(prisma, peerId, b.id, date, vkSendMessage, b.name);
+      if (!started) {
+        await clearOrderDraft(prisma, peerId);
+        await prisma.vkConversationState.update({ where: { peerId }, data: { currentState: 'IDLE' } });
+        await vkSendMessage(
+          peerId,
+          `${VkMsg.MSG_ORDER_MENU_EMPTY}\n\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
+          { keyboardJson }
+        );
+      }
       return { handled: true };
     }
     case O.AWAIT_ITEMS: {
@@ -289,30 +235,23 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
         await vkSendMessage(peerId, VkMsg.MSG_ORDER_STATE_BROKEN, { keyboardJson });
         return { handled: true };
       }
-      try {
-        const q = await computeQuoteKopeks(prisma, branchId, date, parsed.items);
-        await prisma.vkConversationState.update({
-          where: { peerId },
-          data: {
-            draftCartJson: JSON.stringify(parsed.items),
-            currentState: O.REVIEW
-          }
-        });
-        const summary = parsed.items
-          .map((it) => `• поз. ${it.position} × ${it.qty}`)
-          .join('\n');
+      const formatted = await formatVkOrderReviewMessage(prisma, branchId, date, parsed.items);
+      if (!formatted.ok) {
         await vkSendMessage(
           peerId,
-          `${VkMsg.MSG_ORDER_REVIEW_HEADER}\n${summary}\n\nИтого: ${rubK(q.totalAmount)} ₽\n\n${VkMsg.MSG_ORDER_REVIEW_CONFIRM}`,
+          `${VkMsg.MSG_ORDER_QUOTE_FAIL(formatted.error)}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
           { keyboardJson: null }
         );
-      } catch (e) {
-        await vkSendMessage(
-          peerId,
-          `${VkMsg.MSG_ORDER_QUOTE_FAIL(String(e.message || e))}\n\n${VkMsg.MSG_ORDER_ITEMS_HINT}\n${VkMsg.MSG_ORDER_FALLBACK_LEAD}`,
-          { keyboardJson: null }
-        );
+        return { handled: true };
       }
+      await prisma.vkConversationState.update({
+        where: { peerId },
+        data: {
+          draftCartJson: JSON.stringify(parsed.items),
+          currentState: O.REVIEW
+        }
+      });
+      await vkSendMessage(peerId, formatted.text, { keyboardJson: null });
       return { handled: true };
     }
     case O.REVIEW: {
@@ -344,25 +283,20 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
         const branchId = state.draftBranchId;
         const date = state.draftDeliveryDate;
         if (!branchId || !date) return { handled: true };
-        try {
-          const q = await computeQuoteKopeks(prisma, branchId, date, reparsed.items);
-          await prisma.vkConversationState.update({
-            where: { peerId },
-            data: { draftCartJson: JSON.stringify(reparsed.items) }
-          });
-          const summary = reparsed.items.map((it) => `• поз. ${it.position} × ${it.qty}`).join('\n');
+        const formatted = await formatVkOrderReviewMessage(prisma, branchId, date, reparsed.items);
+        if (!formatted.ok) {
           await vkSendMessage(
             peerId,
-            `${VkMsg.MSG_ORDER_REVIEW_HEADER}\n${summary}\n\nИтого: ${rubK(q.totalAmount)} ₽\n\n${VkMsg.MSG_ORDER_REVIEW_CONFIRM}`,
+            `${VkMsg.MSG_ORDER_QUOTE_FAIL(formatted.error)}\n\n${VkMsg.MSG_ORDER_REVIEW_CONFIRM}`,
             { keyboardJson: null }
           );
-        } catch (e) {
-          await vkSendMessage(
-            peerId,
-            `${VkMsg.MSG_ORDER_QUOTE_FAIL(String(e.message || e))}\n\n${VkMsg.MSG_ORDER_REVIEW_CONFIRM}`,
-            { keyboardJson: null }
-          );
+          return { handled: true };
         }
+        await prisma.vkConversationState.update({
+          where: { peerId },
+          data: { draftCartJson: JSON.stringify(reparsed.items) }
+        });
+        await vkSendMessage(peerId, formatted.text, { keyboardJson: null });
         return { handled: true };
       }
       await vkSendMessage(peerId, VkMsg.MSG_ORDER_REVIEW_UNCLEAR, { keyboardJson: null });
@@ -450,15 +384,23 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
             draftComment: '',
             draftBranchId: null,
             draftDeliveryDate: null,
-            draftCartJson: '[]'
+            draftCartJson: '[]',
+            draftVkGuideJson: '{}'
           }
         });
 
-        const rub = rubK(order.totalAmount);
+        const subK = order.itemsSubtotalKopeks != null ? order.itemsSubtotalKopeks : order.totalAmount;
+        const feeK = order.deliveryFeeKopeks != null ? order.deliveryFeeKopeks : 0;
+        const feeLabel = feeK > 0 ? `${rubK(feeK)}` : 'бесплатно';
         const lines = items.map((it) => `поз.${it.position}×${it.qty}`).join(', ');
         await vkSendMessage(
           peerId,
-          VkMsg.MSG_ORDER_CREATED(order.id, rub, lines, fresh.draftDeliveryDate),
+          VkMsg.MSG_ORDER_CREATED(
+            order.id,
+            { sub: rubK(subK), fee: feeLabel, total: rubK(order.totalAmount) },
+            lines,
+            fresh.draftDeliveryDate
+          ),
           { keyboardJson }
         );
       } catch (e) {

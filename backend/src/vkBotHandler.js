@@ -2,7 +2,7 @@
  * Обработка входящих сообщений VK (лид-форма, меню из CRM, структурированный заказ).
  */
 
-import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
+import { buildVkPrimaryMenuFromCrm } from './vkMenuFromCrm.js';
 import { vkMainKeyboardJson, vkSendMessage } from './vkSend.js';
 import * as VkMsg from './messages/vkBotRu.js';
 import { processVkStructuredOrderFlow, startVkStructuredOrder, isStructuredOrderState } from './vkOrderHandler.js';
@@ -114,7 +114,8 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
         draftComment: '',
         draftBranchId: null,
         draftDeliveryDate: null,
-        draftCartJson: '[]'
+        draftCartJson: '[]',
+        draftVkGuideJson: '{}'
       }
     });
     await vkSendMessage(peerId, VkMsg.MSG_LEAD_CANCELLED, { keyboardJson: KB });
@@ -179,7 +180,8 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
             draftComment: '',
             draftBranchId: null,
             draftDeliveryDate: null,
-            draftCartJson: '[]'
+            draftCartJson: '[]',
+            draftVkGuideJson: '{}'
           }
         });
       }
@@ -187,20 +189,12 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
       return;
     }
     if (wantMenu) {
-      const item = await getCurrentVkMenuDailyItem(prisma);
-      let reply;
-      let menuId = null;
-      if (item) {
-        reply = formatVkMenuMessage(item);
-        menuId = item.id;
-      } else {
-        reply = VkMsg.MSG_MENU_EMPTY;
-      }
+      const built = await buildVkPrimaryMenuFromCrm(prisma);
       await prisma.vkConversationState.update({
         where: { peerId },
-        data: { currentState: STATES.IDLE, menuContentItemId: menuId }
+        data: { currentState: STATES.IDLE, menuContentItemId: built.menuContentItemId }
       });
-      await vkSendMessage(peerId, `${reply}\n\n${VkMsg.MSG_MENU_FOOTER}`, { keyboardJson: KB });
+      await vkSendMessage(peerId, `${built.text}\n\n${VkMsg.MSG_MENU_FOOTER}`, { keyboardJson: KB });
       return;
     }
     if (wantOperator) {
@@ -308,7 +302,8 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
           draftComment: '',
           draftBranchId: null,
           draftDeliveryDate: null,
-          draftCartJson: '[]'
+          draftCartJson: '[]',
+          draftVkGuideJson: '{}'
         }
       });
 

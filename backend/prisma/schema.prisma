@@ -379,6 +379,10 @@ model DeliveryOrder {
   address         String?
   comment         String?
   paymentType     String?
+  /// Сумма позиций меню без доставки (копейки); null у старых записей до миграции
+  itemsSubtotalKopeks Int?
+  /// Начисленная доставка по единому правилу (копейки); null у старых записей
+  deliveryFeeKopeks   Int?
   totalAmount     Int
   /// NEW | CONFIRMED | KITCHEN | DELIVERING | DONE | CANCELED
   status          String              @default("NEW")
@@ -473,6 +477,8 @@ model VkConversationState {
   draftDeliveryDate      String?
   /// JSON: массив { position, qty } после валидации по MenuDayItem
   draftCartJson          String   @default("[]")
+  /// Служебное состояние пошагового заказа VK (JSON), по умолчанию {}
+  draftVkGuideJson       String   @default("{}")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

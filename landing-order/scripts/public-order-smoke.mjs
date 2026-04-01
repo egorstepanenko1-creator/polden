@@ -116,6 +116,12 @@ function assertOrderShape(order, label) {
     if (order.deliveryDate == null && order.delivery_date == null) errs.push('missing deliveryDate');
     if (typeof order.customerName !== 'string' || !order.customerName.length) errs.push('missing customerName');
     if (typeof order.totalAmount !== 'number') errs.push('missing totalAmount (number)');
+    if (order.itemsSubtotalKopeks != null && typeof order.itemsSubtotalKopeks !== 'number') {
+      errs.push('itemsSubtotalKopeks must be number if set');
+    }
+    if (order.deliveryFeeKopeks != null && typeof order.deliveryFeeKopeks !== 'number') {
+      errs.push('deliveryFeeKopeks must be number if set');
+    }
     if (!Array.isArray(order.items)) errs.push('missing items (array)');
     if (!order.branch || typeof order.branch.name !== 'string') errs.push('missing branch.name');
   }
@@ -186,7 +192,15 @@ async function main() {
       body: JSON.stringify(quoteBody)
     });
     if (typeof quote?.totalAmount !== 'number') throw new Error('quote: totalAmount missing');
-    steps.push(`[PASS] POST /public/delivery-orders/quote → totalAmount=${quote.totalAmount}`);
+    if (typeof quote?.itemsSubtotalKopeks !== 'number') throw new Error('quote: itemsSubtotalKopeks missing');
+    if (typeof quote?.deliveryFeeKopeks !== 'number') throw new Error('quote: deliveryFeeKopeks missing');
+    const sumCheck = quote.itemsSubtotalKopeks + quote.deliveryFeeKopeks;
+    if (sumCheck !== quote.totalAmount) {
+      throw new Error(`quote: totalAmount ${quote.totalAmount} !== sub+fee ${sumCheck}`);
+    }
+    steps.push(
+      `[PASS] POST /public/delivery-orders/quote → sub=${quote.itemsSubtotalKopeks} fee=${quote.deliveryFeeKopeks} total=${quote.totalAmount}`
+    );
 
     if (dryRun) {
       steps.push(`[SKIP] POST /public/delivery-orders (--dry-run / POLDEN_SMOKE_SKIP_ORDER)`);

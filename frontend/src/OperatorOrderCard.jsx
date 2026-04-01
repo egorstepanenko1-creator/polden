@@ -161,7 +161,22 @@ export function OperatorOrderCard({ order, selected, onSelect, statusUpdating, o
           </div>
         ) : null}
         <div style={{ fontSize: 14, marginTop: 8, color: '#333' }}>
-          <strong>{rubKopeks(o.totalAmount)}</strong>
+          {o.itemsSubtotalKopeks != null && o.deliveryFeeKopeks != null ? (
+            <div style={{ lineHeight: 1.45 }}>
+              <div>
+                Позиции: <strong>{rubKopeks(o.itemsSubtotalKopeks)}</strong>
+              </div>
+              <div style={{ fontSize: 13, color: '#555' }}>
+                Доставка:{' '}
+                {o.deliveryFeeKopeks > 0 ? rubKopeks(o.deliveryFeeKopeks) : 'бесплатно'}
+              </div>
+              <div>
+                Итого: <strong>{rubKopeks(o.totalAmount)}</strong>
+              </div>
+            </div>
+          ) : (
+            <strong>{rubKopeks(o.totalAmount)}</strong>
+          )}
           <span style={{ color: '#666', marginLeft: 8 }}>· {itemSummary}</span>
         </div>
         <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Доставка: {o.deliveryDate}</div>

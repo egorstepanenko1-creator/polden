@@ -138,6 +138,8 @@ export async function createDeliveryOrderFromInput(prisma, input) {
   }
 
   const totalAmount = quote.totalAmount;
+  const itemsSubtotalKopeks = quote.itemsSubtotalKopeks ?? null;
+  const deliveryFeeKopeks = quote.deliveryFeeKopeks ?? null;
 
   const createData = {
     branchId: String(branchId),
@@ -147,6 +149,8 @@ export async function createDeliveryOrderFromInput(prisma, input) {
     address: address != null ? String(address).trim().slice(0, 500) || null : null,
     comment: comment != null ? String(comment).trim().slice(0, 2000) || null : null,
     paymentType: paymentType != null ? String(paymentType).trim().slice(0, 32) || null : null,
+    itemsSubtotalKopeks,
+    deliveryFeeKopeks,
     totalAmount,
     attributionJson: attributionJson != null ? attributionJson : null,
     status: st,

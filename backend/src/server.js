@@ -41,8 +41,10 @@ import { createLaunchDrillRouter } from './launchDrillRoutes.js';
 import { createVkWebhookRouter } from './vkWebhookRoutes.js';
 import { createVkLeadRouter } from './vkLeadRoutes.js';
 import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
-import { loadOrderableMenuRows } from './vkOrderMenu.js';
+import { anyBranchHasSellableMenuOnDate } from './vkOrderMenu.js';
 import { serverLocalTomorrowISO } from './vkOrderDates.js';
+import { buildVkPrimaryMenuFromCrm } from './vkMenuFromCrm.js';
+import { loadBranchesAndVkForced, describeVkBranchResolution } from './vkBranchResolve.js';
 import * as ReadinessRu from './messages/readinessRu.js';
 import {
   logDatabaseEnvAtStartup,
@@ -126,6 +128,8 @@ function toPublicOrder(order) {
     deliveryDate: order.deliveryDate,
     customerName: order.customerName,
     customerPhone: order.customerPhone,
+    itemsSubtotalKopeks: order.itemsSubtotalKopeks ?? null,
+    deliveryFeeKopeks: order.deliveryFeeKopeks ?? null,
     totalAmount: order.totalAmount,
     status: order.status ?? 'NEW',
     sourceChannel: order.sourceChannel ?? 'SITE',
@@ -278,6 +282,27 @@ function requireCrmToken(req, res, next) {
   }
   next();
 }
+
+/** Разовое переименование филиалов с «Новосибирск» в названии → «Чебаркуль» (та же БД, что у API). */
+app.post('/api/admin/rename-branch-novosibirsk-to-chebarkul', requireCrmToken, async (req, res) => {
+  const newName = String(req.body?.newName || 'Чебаркуль').trim() || 'Чебаркуль';
+  try {
+    const rows = await prisma.branch.findMany({
+      where: { name: { contains: 'Новосибирск' } }
+    });
+    const updated = [];
+    for (const b of rows) {
+      const u = await prisma.branch.update({
+        where: { id: b.id },
+        data: { name: newName }
+      });
+      updated.push({ id: u.id, was: b.name, now: u.name });
+    }
+    res.json(ok({ updated, count: updated.length }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
 
 app.post('/api/delivery-orders/manual', requireCrmToken, async (req, res) => {
   const body = req.body || {};
@@ -454,7 +479,7 @@ app.post('/api/corporate-leads/:id/convert-to-company', requireCrmToken, async (
   }
 });
 
-/** Живой прогон VK: env + текущее меню бота (X-CRM-Token; секреты не возвращаются). */
+/** Живой прогон VK: env + меню из CRM (X-CRM-Token; секреты не возвращаются). */
 app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
   try {
     const secret = (process.env.VK_WEBHOOK_SECRET || '').trim();
@@ -475,7 +500,8 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
       generatedUrlComputed: null,
       generatedUrlPublishSafe: false,
       generatedUrlSafetyCode: null,
-      botMessagePreview: null
+      botMessagePreview: null,
+      note: ReadinessRu.MENU_DAILY_OPTIONAL_NOTE
     };
     if (menuItem) {
       const urlSafety = getContentItemGeneratedUrlSafety(menuItem);
@@ -498,7 +524,8 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
         generatedUrlComputed,
         generatedUrlPublishSafe: urlSafety.isSafeForPublish,
         generatedUrlSafetyCode: urlSafety.code,
-        botMessagePreview: previewFull.length > 280 ? `${previewFull.slice(0, 280)}…` : previewFull
+        botMessagePreview: previewFull.length > 280 ? `${previewFull.slice(0, 280)}…` : previewFull,
+        note: ReadinessRu.MENU_DAILY_OPTIONAL_NOTE
       };
     }
 
@@ -507,43 +534,45 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
     const vkLiveDrillReady = Boolean(vkCoreEnvOk && menuOk && menuDaily.generatedUrlPublishSafe);
 
     const tomorrowIso = serverLocalTomorrowISO();
-    const probeBranchIdEnv = (process.env.POLDEN_VK_ORDER_PROBE_BRANCH_ID || '').trim();
-    let probeBranch = null;
-    if (probeBranchIdEnv) {
-      probeBranch = await prisma.branch.findUnique({ where: { id: probeBranchIdEnv } });
-    }
-    if (!probeBranch) {
-      const probeBranches = await prisma.branch.findMany({ orderBy: { name: 'asc' }, take: 1 });
-      probeBranch = probeBranches[0] || null;
-    }
-    /** @type {{ deliveryDate: string, branchId: string | null, branchName: string | null, sellableSlotCount: number, ready: boolean, probeNote: string }} */
-    let vkOrderableMenu = {
-      deliveryDate: tomorrowIso,
-      branchId: null,
-      branchName: null,
-      sellableSlotCount: 0,
-      ready: false,
-      probeNote: probeBranchIdEnv
-        ? `Точка из POLDEN_VK_ORDER_PROBE_BRANCH_ID${probeBranch ? '' : ' (id не найден — fallback A→Я)'}.`
-        : 'Проверка по первой точке по имени (A→Я); задать POLDEN_VK_ORDER_PROBE_BRANCH_ID для своей точки.'
+    const { branches, forced } = await loadBranchesAndVkForced(prisma);
+    const branchResolution = describeVkBranchResolution(forced, branches);
+
+    const builtMenu = await buildVkPrimaryMenuFromCrm(prisma);
+    const sellableOnAnyBranch = await anyBranchHasSellableMenuOnDate(prisma, tomorrowIso);
+
+    const vkCrmMenu = {
+      primarySource: builtMenu.primarySource,
+      deliveryDate: builtMenu.deliveryDate,
+      branchId: builtMenu.branchId,
+      branchName: builtMenu.branchName,
+      sellableSlotCount: builtMenu.rowCount,
+      branchResolution,
+      multiBranchMenuBlocked: builtMenu.multiBranchMenuBlocked,
+      contentSupplementAppended: builtMenu.contentSupplementAppended,
+      appendMenuDailyEnvOn: (process.env.POLDEN_VK_APPEND_MENU_DAILY || '').trim() === '1',
+      botMessagePreview:
+        builtMenu.text.length > 360 ? `${builtMenu.text.slice(0, 360)}…` : builtMenu.text
     };
-    if (probeBranch) {
-      const rows = await loadOrderableMenuRows(prisma, probeBranch.id, tomorrowIso);
-      vkOrderableMenu = {
-        deliveryDate: tomorrowIso,
-        branchId: probeBranch.id,
-        branchName: probeBranch.name,
-        sellableSlotCount: rows.length,
-        ready: rows.length > 0,
-        probeNote: vkOrderableMenu.probeNote
-      };
-    }
-    const vkStructuredOrderReady = Boolean(vkCoreEnvOk && vkOrderableMenu.ready);
+
+    const vkOrderableMenu = {
+      deliveryDate: tomorrowIso,
+      branchId: builtMenu.branchId,
+      branchName: builtMenu.branchName,
+      sellableSlotCount: builtMenu.rowCount,
+      branchResolution,
+      multiBranchMenuBlocked: builtMenu.multiBranchMenuBlocked,
+      primarySource: 'MenuDayItem',
+      sellableOnAnyBranch,
+      probeNote: ReadinessRu.VK_ORDER_PROBE_NOTE_RU(builtMenu.multiBranchMenuBlocked, Boolean(forced)),
+      ready: Boolean(builtMenu.rowCount > 0 && !builtMenu.multiBranchMenuBlocked)
+    };
+
+    const vkStructuredOrderReady = Boolean(vkCoreEnvOk && branches.length > 0 && sellableOnAnyBranch);
     const vkStructuredOrderBlockers = [
       !token.length ? ReadinessRu.BLOCKER_NO_GROUP_TOKEN : null,
       !conf.length ? ReadinessRu.BLOCKER_NO_CONFIRMATION : null,
-      !probeBranch ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
-      probeBranch && !vkOrderableMenu.ready ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
+      !branches.length ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
+      branches.length && !sellableOnAnyBranch ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
     ].filter(Boolean);
 
     res.json(
@@ -557,9 +586,8 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           hints: [
             ReadinessRu.VK_DIAG_LEAD_ACCEPTED_EXPLANATION,
             ReadinessRu.VK_DIAG_ORDER_BUTTON_RESETS_LEAD,
-            vkStructuredOrderReady
-              ? null
-              : 'Пока vkStructuredOrderReady=false, после «Оформить заказ» бот сообщит, что меню на завтра пусто, и предложит заявку — это блокер данных CRM, не «старый код».'
+            ReadinessRu.VK_DIAG_MENU_DAY_ITEM_PRIMARY,
+            vkStructuredOrderReady ? null : ReadinessRu.VK_DIAG_STRUCTURED_ORDER_BLOCKED
           ].filter(Boolean)
         },
         webhookPostUrl: '/api/vk/webhook',
@@ -568,6 +596,7 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           effectiveOrigin: originMeta.effectiveOrigin,
           isSafeForPublish: originMeta.isSafeForPublish
         },
+        menuPrimaryRule: ReadinessRu.MENU_PRIMARY_RULE_RU,
         menuContentRule: ReadinessRu.MENU_CONTENT_RULE_RU,
         menuDaily,
         vkLiveDrillReady,
@@ -578,6 +607,7 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           menuDaily.present && !menuDaily.hasUsableCaption ? ReadinessRu.BLOCKER_MENU_CAPTION_SHORT : null,
           menuDaily.present && !menuDaily.generatedUrlPublishSafe ? ReadinessRu.BLOCKER_MENU_URL_UNSAFE : null
         ].filter(Boolean),
+        vkCrmMenu,
         vkOrderableMenu,
         vkStructuredOrderReady,
         vkStructuredOrderBlockers
