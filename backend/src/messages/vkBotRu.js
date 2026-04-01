@@ -12,7 +12,7 @@ export const VK_BOT_DEFAULT_OPERATOR_HINT =
 export const MSG_LEAD_CANCELLED = 'Ок, прервали. Выберите действие кнопками ниже.';
 
 export const MSG_MENU_FOOTER =
-  'Оформить заказ — на завтра, те же позиции и цены, что в меню выше.\nОставить заявку — оператор оформит вручную.\nСвязаться с оператором — вопрос или помощь.';
+  'Оформить заказ — на завтра, те же позиции и цены, что в меню выше.\nСвязаться с оператором — вопрос или помощь.\nОставить заявку — оператор свяжется и оформит при необходимости.';
 
 export const MSG_MENU_NO_BRANCH = 'Точки доставки в CRM не настроены. Напишите оператору или оставьте заявку.';
 
@@ -22,7 +22,7 @@ export const MSG_MENU_MULTI_BRANCH_HINT =
 
 /** @param {string} branchName @param {string} date */
 export function MSG_MENU_EMPTY_CRM(branchName, date) {
-  return `Точка: ${branchName}\nДата: ${date} (завтра)\n\nВ CRM пока нет позиций с названием на этот день. Заполните «Меню на день» или нажмите «Оставить заявку».`;
+  return `Точка: ${branchName}\nДата: ${date} (завтра)\n\nПозиции в CRM на этот день ещё не заполнены. Добавьте их в разделе «Меню на день».`;
 }
 
 /** @param {string} branchName @param {string} date @param {string} listBlock */
@@ -38,7 +38,7 @@ export const MSG_VK_MENU_TRUNC_HINT = 'Продолжение по ссылке 
 export const MSG_VK_MENU_CONTEXT_LINE = 'Материал из контент-пайплайна (не заменяет меню CRM выше):';
 
 export const MSG_MENU_EMPTY =
-  'Меню на завтра в CRM не заполнено. Оформите «Меню на день» в CRM или оставьте заявку — оператор свяжется.';
+  'Меню на завтра в CRM не заполнено. Заполните «Меню на день» в CRM на нужную точку и дату.';
 
 export const MSG_ASK_NAME = 'Как вас зовут? (или «Отмена»)';
 
