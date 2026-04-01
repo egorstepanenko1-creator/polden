@@ -6,8 +6,14 @@ export const CRM_TOKEN_HINT =
   'На фронте переменная VITE_CRM_TOKEN должна совпадать с CRM_INTERNAL_TOKEN на бэкенде (если токен не задан в .env, используется значение dev).';
 
 /** Правило выбора меню — человекочитаемо, внутренние ключи сохранены для отладки. */
+export const MENU_PRIMARY_RULE_RU =
+  'Продаваемое меню на «завтра» для VK и заказа — строки MenuDayItem в CRM (дата = локальное «завтра» сервера, непустое название позиции).';
+
 export const MENU_CONTENT_RULE_RU =
   'Материал: канал VK, тип MENU_DAILY, статусы APPROVED или PUBLISHED; берётся сначала по дате публикации, затем по обновлению.';
+
+export const MENU_DAILY_OPTIONAL_NOTE =
+  'Контент MENU_DAILY из пайплайна опционален; на заказ и цены не влияет, если не включён режим дополнения к CRM-меню.';
 
 export const BLOCKER_NO_GROUP_TOKEN = 'Нужен VK_GROUP_ACCESS_TOKEN в .env бэкенда.';
 
@@ -50,3 +56,9 @@ export const VK_DIAG_LEAD_ACCEPTED_EXPLANATION =
 
 export const VK_DIAG_ORDER_BUTTON_RESETS_LEAD =
   'Если пользователь начал «Оставить заявку», затем нажал «Оформить заказ», черновик заявки сбрасывается и открывается заказ на завтра (нужен MenuDayItem с названиями в CRM).';
+
+export const VK_DIAG_MENU_DAY_ITEM_PRIMARY =
+  'Кнопка «Меню» и оформление заказа в VK опираются на MenuDayItem в CRM; материал MENU_DAILY подмешивается только при POLDEN_VK_APPEND_MENU_DAILY=1.';
+
+export const VK_DIAG_STRUCTURED_ORDER_BLOCKED =
+  'Структурированный заказ из VK сейчас заблокирован: проверьте VK_GROUP_ACCESS_TOKEN, VK_CALLBACK_CONFIRMATION_CODE, наличие Branch в БД и заполненное меню на завтра (MenuDayItem с названиями).';

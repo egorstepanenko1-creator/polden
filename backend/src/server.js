@@ -157,7 +157,17 @@ app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     const extras = await getHealthDbExtras(prisma);
-    res.json(ok({ status: 'healthy', dbConnected: true, ...extras }));
+    res.json(
+      ok({
+        alive: true,
+        status: 'healthy',
+        service: 'polden-backend',
+        ts: new Date().toISOString(),
+        uptimeSec: Math.floor(process.uptime()),
+        dbConnected: true,
+        ...extras
+      })
+    );
   } catch (e) {
     res.status(503).json(fail(e.message || 'unhealthy', 'UNHEALTHY'));
   }
@@ -575,8 +585,27 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
       branches.length && !sellableOnAnyBranch ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
     ].filter(Boolean);
 
+    const appendMenuDaily = (process.env.POLDEN_VK_APPEND_MENU_DAILY || '').trim() === '1';
+    const operationalSafety = {
+      ts: new Date().toISOString(),
+      tomorrowDate: tomorrowIso,
+      activeBranchForVkMenu: {
+        id: builtMenu.branchId,
+        name: builtMenu.branchName
+      },
+      tomorrowMenuSellableRowCountForActiveBranch: builtMenu.rowCount,
+      tomorrowMenuExistsForActiveBranch: Boolean(
+        builtMenu.branchId && builtMenu.rowCount > 0 && !builtMenu.multiBranchMenuBlocked
+      ),
+      vkGroupAccessTokenConfigured: token.length > 0,
+      vkCallbackConfirmationConfigured: conf.length > 0,
+      vkWebhookSecretConfigured: secret.length > 0,
+      secondaryMenuContentAppendEnabled: appendMenuDaily
+    };
+
     res.json(
       ok({
+        operationalSafety,
         vkWebhookSecretConfigured: secret.length > 0,
         vkGroupAccessTokenConfigured: token.length > 0,
         vkCallbackConfirmationConfigured: conf.length > 0,
