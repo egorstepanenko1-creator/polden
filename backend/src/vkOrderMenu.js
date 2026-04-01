@@ -16,6 +16,19 @@ export async function loadOrderableMenuRows(prisma, branchId, date) {
 }
 
 /**
+ * @param {import('@prisma/client').PrismaClient} prisma
+ * @param {string} date YYYY-MM-DD
+ * @returns {Promise<boolean>}
+ */
+export async function anyBranchHasSellableMenuOnDate(prisma, date) {
+  const rows = await prisma.menuDayItem.findMany({
+    where: { date: String(date) },
+    select: { name: true }
+  });
+  return rows.some((r) => String(r.name || '').trim().length > 0);
+}
+
+/**
  * @param {Array<{ position: number, name: string, price: number }>} rows
  */
 export function formatVkOrderableMenuText(rows) {
