@@ -346,7 +346,7 @@ export async function processVkGuideFlow(prisma, ctx) {
   if (st === O.G_SOUP_MORE || st === O.G_HOT_MORE || st === O.G_SALAD_MORE) {
     const cat = findCatByMore(st);
     if (!cat) return { handled: false };
-    if (isMoreCmd(cmd) || textIsMoreButton(cmd)) {
+    if (isMoreCmd(cmd)) {
       const slots = slotsForCategory(rows, cat.positions);
       if (!slots.length) {
         await advanceAfterCategoryDone(prisma, peerId, branchId, date, vkSendMessage, cat);
