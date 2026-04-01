@@ -21,6 +21,8 @@
     "prove:supplier-foundation": "node scripts/prove-supplier-foundation.mjs",
     "prove:purchase-draft": "node scripts/prove-purchase-draft.mjs",
     "prove:launch-day": "node scripts/prove-launch-day.mjs",
+    "db:seed:thursday-menu": "node scripts/seed-thursday-menu-safe.mjs",
+    "db:seed:thursday-menu:dry": "node scripts/seed-thursday-menu-safe.mjs --dry-run",
     "db:studio": "prisma studio"
   },
   "dependencies": {
