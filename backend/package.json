@@ -23,6 +23,7 @@
     "prove:launch-day": "node scripts/prove-launch-day.mjs",
     "db:seed:thursday-menu": "node scripts/seed-thursday-menu-safe.mjs",
     "db:seed:thursday-menu:dry": "node scripts/seed-thursday-menu-safe.mjs --dry-run",
+    "smoke:post-deploy": "node scripts/post-deploy-smoke.mjs",
     "db:studio": "prisma studio"
   },
   "dependencies": {
