@@ -147,3 +147,8 @@ export const kitchen = {
   labelUnitDisplayName: 'Название для отображения',
   priceEffectiveToNull: 'Без даты окончания'
 };
+
+export function orderSourceChannelButtonLabel(code) {
+  const m = { SITE: "Сайт", VK: "VK", MANUAL: "CRM", PHONE: "Телефон" };
+  return m[String(code || "")] || code;
+}

@@ -40,11 +40,11 @@ import { buildContentPerformanceList } from './contentPerformance.js';
 import { createLaunchDrillRouter } from './launchDrillRoutes.js';
 import { createVkWebhookRouter } from './vkWebhookRoutes.js';
 import { createVkLeadRouter } from './vkLeadRoutes.js';
+import { createVkCustomersRouter } from './vkCustomersRoutes.js';
 import { getCurrentVkMenuDailyItem, formatVkMenuMessage } from './vkMenuContent.js';
-import { anyBranchHasSellableMenuOnDate } from './vkOrderMenu.js';
+import { loadOrderableMenuRows } from './vkOrderMenu.js';
 import { serverLocalTomorrowISO } from './vkOrderDates.js';
-import { buildVkPrimaryMenuFromCrm } from './vkMenuFromCrm.js';
-import { loadBranchesAndVkForced, describeVkBranchResolution } from './vkBranchResolve.js';
+import { startVkLongPoll } from './vkLongPoll.js';
 import * as ReadinessRu from './messages/readinessRu.js';
 import {
   logDatabaseEnvAtStartup,
@@ -84,7 +84,8 @@ warnWeakDevConfig();
 const prisma = new PrismaClient();
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
-const CRM_TOKEN = (process.env.CRM_INTERNAL_TOKEN || 'dev').trim();
+const IS_PRODUCTION_LIKE = process.env.NODE_ENV === 'production' || process.env.POLDEN_PRODUCTION_LIKE === '1';
+const CRM_TOKEN = (process.env.CRM_INTERNAL_TOKEN || (IS_PRODUCTION_LIKE ? '' : 'dev')).trim();
 
 if (process.env.POLDEN_TRUST_PROXY === '1') {
   app.set('trust proxy', 1);
@@ -128,8 +129,6 @@ function toPublicOrder(order) {
     deliveryDate: order.deliveryDate,
     customerName: order.customerName,
     customerPhone: order.customerPhone,
-    itemsSubtotalKopeks: order.itemsSubtotalKopeks ?? null,
-    deliveryFeeKopeks: order.deliveryFeeKopeks ?? null,
     totalAmount: order.totalAmount,
     status: order.status ?? 'NEW',
     sourceChannel: order.sourceChannel ?? 'SITE',
@@ -197,6 +196,105 @@ app.get('/api/public/menu-day', async (req, res) => {
   }
 });
 
+// --- Order Window (окно приёма заказов) ---
+
+/**
+ * Екатеринбург UTC+5.
+ * Окно приёма закрывается в день ПЕРЕД доставкой в 21:00 Екб (= 16:00 UTC).
+ * deliveryDate — дата доставки (завтра). closesAt = deliveryDate МИНУС 1 день, 21:00 Екб.
+ */
+function orderWindowClosesAt(deliveryDate) {
+  const [y, m, d] = deliveryDate.split('-').map(Number);
+  // closesAt = (deliveryDate - 1 день) 21:00 Екб = 16:00 UTC
+  const dt = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt;
+}
+
+/** Проверка: deliveryDate — выходной (сб/вс по Екб)? */
+function isWeekendEkb(deliveryDate) {
+  const [y, m, d] = deliveryDate.split('-').map(Number);
+  // Берём полдень по Екб (07:00 UTC) чтобы гарантированно попасть в нужный день
+  const dt = new Date(Date.UTC(y, m - 1, d, 7, 0, 0));
+  const dow = dt.getUTCDay(); // 0=вс, 6=сб
+  return dow === 0 || dow === 6;
+}
+
+async function hasPublishedMenuDay(branchId, deliveryDate) {
+  const row = await prisma.menuDayItem.findFirst({
+    where: { branchId: String(branchId), date: String(deliveryDate) },
+    select: { id: true }
+  });
+  return row != null;
+}
+
+async function getOrderWindowState(branchId, deliveryDate) {
+  const normalizedBranchId = String(branchId);
+  const normalizedDate = String(deliveryDate);
+  const [win, menuReady] = await Promise.all([
+    prisma.orderWindow.findUnique({
+      where: {
+        branchId_deliveryDate: {
+          branchId: normalizedBranchId,
+          deliveryDate: normalizedDate
+        }
+      }
+    }),
+    hasPublishedMenuDay(normalizedBranchId, normalizedDate)
+  ]);
+
+  if (!win) {
+    return {
+      exists: false,
+      accepting: false,
+      reason: menuReady ? 'no_window' : 'menu_unpublished',
+      menuReady,
+      closesAt: null,
+      openedAt: null,
+      manuallyClosed: false
+    };
+  }
+
+  const now = new Date();
+  const accepting = menuReady && !win.manuallyClosed && now < win.closesAt;
+  const reason = !menuReady
+    ? 'menu_unpublished'
+    : win.manuallyClosed
+      ? 'manually_closed'
+      : now >= win.closesAt
+        ? 'expired'
+        : 'open';
+
+  return {
+    exists: true,
+    accepting,
+    reason,
+    menuReady,
+    closesAt: win.closesAt,
+    openedAt: win.openedAt,
+    manuallyClosed: win.manuallyClosed
+  };
+}
+
+app.get('/api/public/order-window', async (req, res) => {
+  const branchId = req.query.branchId;
+  const date = req.query.date;
+  if (!branchId || !date) {
+    return res.status(400).json(fail('Укажите branchId и date'));
+  }
+  try {
+    const state = await getOrderWindowState(branchId, date);
+    res.json(ok({
+      accepting: state.accepting,
+      reason: state.reason,
+      menuReady: state.menuReady,
+      closesAt: state.closesAt ? state.closesAt.toISOString() : null
+    }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
 app.post(
   '/api/public/delivery-orders/quote',
   publicOrderQuoteRateLimit,
@@ -226,6 +324,22 @@ app.post(
     }
     const attribution = sanitizeAttribution(body.attribution);
     const attributionJson = attribution ? JSON.stringify(attribution) : null;
+
+    // --- Order window guard: заказы принимаются только при открытом окне ---
+    if (body.branchId && body.deliveryDate) {
+      try {
+        const state = await getOrderWindowState(body.branchId, body.deliveryDate);
+        if (!state.accepting) {
+          return res.status(403).json(fail(
+            'Приём заказов на эту дату сейчас закрыт. Меню ещё не опубликовано или время приёма истекло.',
+            'ORDER_WINDOW_CLOSED'
+          ));
+        }
+      } catch (e) {
+        // Если таблица ещё не создана (миграция не применена) — пропускаем guard
+        if (!String(e.message).includes('orderWindow')) throw e;
+      }
+    }
 
     try {
       const order = await createDeliveryOrderFromInput(prisma, {
@@ -276,6 +390,9 @@ app.post('/api/public/corporate-leads', publicOrderCreateRateLimit, async (req, 
 });
 
 function requireCrmToken(req, res, next) {
+  if (!CRM_TOKEN) {
+    return res.status(503).json(fail('CRM internal token is not configured', 'CONFIG'));
+  }
   const t = req.headers['x-crm-token'];
   if (t !== CRM_TOKEN) {
     return res.status(401).json(fail('Нужен заголовок X-CRM-Token', 'UNAUTHORIZED'));
@@ -283,22 +400,101 @@ function requireCrmToken(req, res, next) {
   next();
 }
 
-/** Разовое переименование филиалов с «Новосибирск» в названии → «Чебаркуль» (та же БД, что у API). */
-app.post('/api/admin/rename-branch-novosibirsk-to-chebarkul', requireCrmToken, async (req, res) => {
-  const newName = String(req.body?.newName || 'Чебаркуль').trim() || 'Чебаркуль';
+// --- CRM: Order Window management ---
+
+/** Открыть приём заказов на дату доставки. closesAt = день до доставки 21:00 Екб. */
+app.post('/api/order-window/open', requireCrmToken, async (req, res) => {
+  const { branchId, deliveryDate } = req.body || {};
+  if (!branchId || !deliveryDate) {
+    return res.status(400).json(fail('Нужны branchId и deliveryDate'));
+  }
   try {
-    const rows = await prisma.branch.findMany({
-      where: { name: { contains: 'Новосибирск' } }
-    });
-    const updated = [];
-    for (const b of rows) {
-      const u = await prisma.branch.update({
-        where: { id: b.id },
-        data: { name: newName }
-      });
-      updated.push({ id: u.id, was: b.name, now: u.name });
+    if (isWeekendEkb(deliveryDate)) {
+      return res.status(400).json(fail(
+        'По выходным мы не работаем. Выберите будний день.',
+        'WEEKEND_BLOCKED'
+      ));
     }
-    res.json(ok({ updated, count: updated.length }));
+    const menuReady = await hasPublishedMenuDay(branchId, deliveryDate);
+    if (!menuReady) {
+      return res.status(400).json(fail(
+        'Нельзя открыть приём заказов до публикации меню на эту дату.',
+        'MENU_DAY_REQUIRED'
+      ));
+    }
+    const closesAt = orderWindowClosesAt(deliveryDate);
+    const now = new Date();
+    if (now >= closesAt) {
+      return res.status(400).json(fail(
+        'Нельзя открыть окно: 21:00 накануне доставки уже прошло',
+        'WINDOW_EXPIRED'
+      ));
+    }
+    const win = await prisma.orderWindow.upsert({
+      where: { branchId_deliveryDate: { branchId, deliveryDate } },
+      create: { branchId, deliveryDate, openedAt: now, closesAt, manuallyClosed: false },
+      update: { openedAt: now, closesAt, manuallyClosed: false }
+    });
+    res.json(ok({
+      id: win.id,
+      accepting: true,
+      openedAt: win.openedAt.toISOString(),
+      closesAt: win.closesAt.toISOString()
+    }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/** Закрыть приём заказов вручную (досрочно). */
+app.post('/api/order-window/close', requireCrmToken, async (req, res) => {
+  const { branchId, deliveryDate } = req.body || {};
+  if (!branchId || !deliveryDate) {
+    return res.status(400).json(fail('Нужны branchId и deliveryDate'));
+  }
+  try {
+    const win = await prisma.orderWindow.findUnique({
+      where: { branchId_deliveryDate: { branchId, deliveryDate } }
+    });
+    if (!win) {
+      return res.status(404).json(fail('Окно не найдено', 'NOT_FOUND'));
+    }
+    const updated = await prisma.orderWindow.update({
+      where: { id: win.id },
+      data: { manuallyClosed: true }
+    });
+    res.json(ok({ accepting: false, manuallyClosed: true, closesAt: updated.closesAt.toISOString() }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/** Статус окна заказов для CRM (с доп. полями). */
+app.get('/api/order-window', requireCrmToken, async (req, res) => {
+  const branchId = req.query.branchId;
+  const date = req.query.date;
+  if (!branchId || !date) {
+    return res.status(400).json(fail('Укажите branchId и date'));
+  }
+  try {
+    const state = await getOrderWindowState(branchId, date);
+    if (!state.exists) {
+      return res.json(ok({
+        exists: false,
+        accepting: false,
+        reason: state.reason,
+        menuReady: state.menuReady
+      }));
+    }
+    res.json(ok({
+      exists: true,
+      accepting: state.accepting,
+      reason: state.reason,
+      menuReady: state.menuReady,
+      manuallyClosed: state.manuallyClosed,
+      openedAt: state.openedAt.toISOString(),
+      closesAt: state.closesAt.toISOString()
+    }));
   } catch (e) {
     res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
   }
@@ -372,6 +568,34 @@ app.patch('/api/delivery-orders/:id/status', requireCrmToken, async (req, res) =
 });
 
 /** B2B: компании и заявки на корпоративные обеды (CRM token). */
+app.delete('/api/delivery-orders/:id', requireCrmToken, async (req, res) => {
+  const id = req.params.id != null ? String(req.params.id).trim() : '';
+  if (!id) return res.status(400).json(fail('id required', 'VALIDATION'));
+  try {
+    const current = await prisma.deliveryOrder.findUnique({
+      where: { id },
+      include: { leadConversion: { select: { id: true } } }
+    });
+    if (!current) return res.status(404).json(fail('Заказ не найден', 'NOT_FOUND'));
+    if (!['CANCELED', 'CANCELLED'].includes(String(current.status || ''))) {
+      return res.status(400).json(fail('Удалять можно только отменённые заказы', 'VALIDATION'));
+    }
+    await prisma.$transaction(async (tx) => {
+      if (current.leadConversion?.id) {
+        await tx.vkLead.update({
+          where: { id: current.leadConversion.id },
+          data: { convertedOrderId: null }
+        });
+      }
+      await tx.deliveryOrderItem.deleteMany({ where: { orderId: id } });
+      await tx.deliveryOrder.delete({ where: { id } });
+    });
+    res.json(ok({ id, deleted: true }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'delete failed', 'INTERNAL'));
+  }
+});
+
 app.get('/api/company-accounts', requireCrmToken, async (req, res) => {
   try {
     const data = await listCompanyAccounts(prisma, {
@@ -479,7 +703,7 @@ app.post('/api/corporate-leads/:id/convert-to-company', requireCrmToken, async (
   }
 });
 
-/** Живой прогон VK: env + меню из CRM (X-CRM-Token; секреты не возвращаются). */
+/** Живой прогон VK: env + текущее меню бота (X-CRM-Token; секреты не возвращаются). */
 app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
   try {
     const secret = (process.env.VK_WEBHOOK_SECRET || '').trim();
@@ -500,8 +724,7 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
       generatedUrlComputed: null,
       generatedUrlPublishSafe: false,
       generatedUrlSafetyCode: null,
-      botMessagePreview: null,
-      note: ReadinessRu.MENU_DAILY_OPTIONAL_NOTE
+      botMessagePreview: null
     };
     if (menuItem) {
       const urlSafety = getContentItemGeneratedUrlSafety(menuItem);
@@ -524,8 +747,7 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
         generatedUrlComputed,
         generatedUrlPublishSafe: urlSafety.isSafeForPublish,
         generatedUrlSafetyCode: urlSafety.code,
-        botMessagePreview: previewFull.length > 280 ? `${previewFull.slice(0, 280)}…` : previewFull,
-        note: ReadinessRu.MENU_DAILY_OPTIONAL_NOTE
+        botMessagePreview: previewFull.length > 280 ? `${previewFull.slice(0, 280)}…` : previewFull
       };
     }
 
@@ -534,45 +756,43 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
     const vkLiveDrillReady = Boolean(vkCoreEnvOk && menuOk && menuDaily.generatedUrlPublishSafe);
 
     const tomorrowIso = serverLocalTomorrowISO();
-    const { branches, forced } = await loadBranchesAndVkForced(prisma);
-    const branchResolution = describeVkBranchResolution(forced, branches);
-
-    const builtMenu = await buildVkPrimaryMenuFromCrm(prisma);
-    const sellableOnAnyBranch = await anyBranchHasSellableMenuOnDate(prisma, tomorrowIso);
-
-    const vkCrmMenu = {
-      primarySource: builtMenu.primarySource,
-      deliveryDate: builtMenu.deliveryDate,
-      branchId: builtMenu.branchId,
-      branchName: builtMenu.branchName,
-      sellableSlotCount: builtMenu.rowCount,
-      branchResolution,
-      multiBranchMenuBlocked: builtMenu.multiBranchMenuBlocked,
-      contentSupplementAppended: builtMenu.contentSupplementAppended,
-      appendMenuDailyEnvOn: (process.env.POLDEN_VK_APPEND_MENU_DAILY || '').trim() === '1',
-      botMessagePreview:
-        builtMenu.text.length > 360 ? `${builtMenu.text.slice(0, 360)}…` : builtMenu.text
-    };
-
-    const vkOrderableMenu = {
+    const probeBranchIdEnv = (process.env.POLDEN_VK_ORDER_PROBE_BRANCH_ID || '').trim();
+    let probeBranch = null;
+    if (probeBranchIdEnv) {
+      probeBranch = await prisma.branch.findUnique({ where: { id: probeBranchIdEnv } });
+    }
+    if (!probeBranch) {
+      const probeBranches = await prisma.branch.findMany({ orderBy: { name: 'asc' }, take: 1 });
+      probeBranch = probeBranches[0] || null;
+    }
+    /** @type {{ deliveryDate: string, branchId: string | null, branchName: string | null, sellableSlotCount: number, ready: boolean, probeNote: string }} */
+    let vkOrderableMenu = {
       deliveryDate: tomorrowIso,
-      branchId: builtMenu.branchId,
-      branchName: builtMenu.branchName,
-      sellableSlotCount: builtMenu.rowCount,
-      branchResolution,
-      multiBranchMenuBlocked: builtMenu.multiBranchMenuBlocked,
-      primarySource: 'MenuDayItem',
-      sellableOnAnyBranch,
-      probeNote: ReadinessRu.VK_ORDER_PROBE_NOTE_RU(builtMenu.multiBranchMenuBlocked, Boolean(forced)),
-      ready: Boolean(builtMenu.rowCount > 0 && !builtMenu.multiBranchMenuBlocked)
+      branchId: null,
+      branchName: null,
+      sellableSlotCount: 0,
+      ready: false,
+      probeNote: probeBranchIdEnv
+        ? `Точка из POLDEN_VK_ORDER_PROBE_BRANCH_ID${probeBranch ? '' : ' (id не найден — fallback A→Я)'}.`
+        : 'Проверка по первой точке по имени (A→Я); задать POLDEN_VK_ORDER_PROBE_BRANCH_ID для своей точки.'
     };
-
-    const vkStructuredOrderReady = Boolean(vkCoreEnvOk && branches.length > 0 && sellableOnAnyBranch);
+    if (probeBranch) {
+      const rows = await loadOrderableMenuRows(prisma, probeBranch.id, tomorrowIso);
+      vkOrderableMenu = {
+        deliveryDate: tomorrowIso,
+        branchId: probeBranch.id,
+        branchName: probeBranch.name,
+        sellableSlotCount: rows.length,
+        ready: rows.length > 0,
+        probeNote: vkOrderableMenu.probeNote
+      };
+    }
+    const vkStructuredOrderReady = Boolean(vkCoreEnvOk && vkOrderableMenu.ready);
     const vkStructuredOrderBlockers = [
       !token.length ? ReadinessRu.BLOCKER_NO_GROUP_TOKEN : null,
       !conf.length ? ReadinessRu.BLOCKER_NO_CONFIRMATION : null,
-      !branches.length ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
-      branches.length && !sellableOnAnyBranch ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
+      !probeBranch ? ReadinessRu.BLOCKER_NO_BRANCH_IN_DB : null,
+      probeBranch && !vkOrderableMenu.ready ? ReadinessRu.BLOCKER_VK_ORDERABLE_MENU_EMPTY : null
     ].filter(Boolean);
 
     res.json(
@@ -586,8 +806,9 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           hints: [
             ReadinessRu.VK_DIAG_LEAD_ACCEPTED_EXPLANATION,
             ReadinessRu.VK_DIAG_ORDER_BUTTON_RESETS_LEAD,
-            ReadinessRu.VK_DIAG_MENU_DAY_ITEM_PRIMARY,
-            vkStructuredOrderReady ? null : ReadinessRu.VK_DIAG_STRUCTURED_ORDER_BLOCKED
+            vkStructuredOrderReady
+              ? null
+              : 'Пока vkStructuredOrderReady=false, после «Оформить заказ» бот сообщит, что меню на завтра пусто, и предложит заявку — это блокер данных CRM, не «старый код».'
           ].filter(Boolean)
         },
         webhookPostUrl: '/api/vk/webhook',
@@ -596,7 +817,6 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           effectiveOrigin: originMeta.effectiveOrigin,
           isSafeForPublish: originMeta.isSafeForPublish
         },
-        menuPrimaryRule: ReadinessRu.MENU_PRIMARY_RULE_RU,
         menuContentRule: ReadinessRu.MENU_CONTENT_RULE_RU,
         menuDaily,
         vkLiveDrillReady,
@@ -607,7 +827,6 @@ app.get('/api/vk-bot/readiness', requireCrmToken, async (req, res) => {
           menuDaily.present && !menuDaily.hasUsableCaption ? ReadinessRu.BLOCKER_MENU_CAPTION_SHORT : null,
           menuDaily.present && !menuDaily.generatedUrlPublishSafe ? ReadinessRu.BLOCKER_MENU_URL_UNSAFE : null
         ].filter(Boolean),
-        vkCrmMenu,
         vkOrderableMenu,
         vkStructuredOrderReady,
         vkStructuredOrderBlockers
@@ -641,9 +860,95 @@ app.get('/api/content-performance', requireCrmToken, async (req, res) => {
   }
 });
 
+/**
+ * Публикация меню в ВК: генерирует ContentItem из MenuDayItem + авто-открывает OrderWindow.
+ * Вызывается из CRM при нажатии «Опубликовать в ВК».
+ */
+app.post('/api/vk/publish-menu', requireCrmToken, async (req, res) => {
+  const { branchId, date } = req.body || {};
+  if (!branchId || !date) {
+    return res.status(400).json(fail('Нужны branchId и date'));
+  }
+  try {
+    // 1. Загружаем позиции меню
+    const rows = await loadOrderableMenuRows(prisma, branchId, date);
+    if (!rows.length) {
+      return res.status(400).json(fail('Меню на эту дату пусто — нечего публиковать.', 'MENU_EMPTY'));
+    }
+
+    // 2. Формируем текст меню
+    const lines = rows.map((r) => {
+      const rub = (Number(r.price) / 100).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+      return `${r.position}. ${String(r.name).trim()} — ${rub} ₽`;
+    });
+    const menuText = `Меню на ${date}:\n${lines.join('\n')}`;
+    const title = `Меню на доставку ${date}`;
+
+    // 3. Upsert ContentItem (канал VK, тип MENU_DAILY)
+    const existing = await prisma.contentItem.findFirst({
+      where: { channel: 'VK', contentType: 'MENU_DAILY', title: { contains: date } }
+    });
+    let contentItem;
+    if (existing) {
+      contentItem = await prisma.contentItem.update({
+        where: { id: existing.id },
+        data: {
+          captionDraft: menuText,
+          title,
+          status: 'PUBLISHED',
+          publishDate: new Date()
+        }
+      });
+    } else {
+      contentItem = await prisma.contentItem.create({
+        data: {
+          channel: 'VK',
+          contentType: 'MENU_DAILY',
+          captionDraft: menuText,
+          title,
+          status: 'PUBLISHED',
+          publishDate: new Date(),
+          landingPath: '/landing-order/',
+          utmSource: 'vk',
+          utmMedium: 'bot',
+          utmCampaign: `menu_${date}`
+        }
+      });
+    }
+
+    // 4. Авто-открываем OrderWindow (если ещё не открыто и не выходной)
+    let windowResult = null;
+    if (!isWeekendEkb(date)) {
+      const closesAt = orderWindowClosesAt(date);
+      const now = new Date();
+      if (now < closesAt) {
+        const win = await prisma.orderWindow.upsert({
+          where: { branchId_deliveryDate: { branchId, deliveryDate: date } },
+          create: { branchId, deliveryDate: date, openedAt: now, closesAt, manuallyClosed: false },
+          update: { openedAt: now, closesAt, manuallyClosed: false }
+        });
+        windowResult = {
+          accepting: true,
+          closesAt: win.closesAt.toISOString()
+        };
+      }
+    }
+
+    res.json(ok({
+      contentItemId: contentItem.id,
+      menuText,
+      orderWindow: windowResult
+    }));
+  } catch (e) {
+    console.error('[vk/publish-menu]', e);
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
 app.use('/api/launch-drills', requireCrmToken, createLaunchDrillRouter(prisma));
 
 app.use('/api/vk-leads', requireCrmToken, createVkLeadRouter(prisma));
+app.use('/api/vk-customers', requireCrmToken, createVkCustomersRouter(prisma));
 
 app.use('/api/kitchen', requireCrmToken, createKitchenCatalogRouter(prisma));
 
@@ -1127,6 +1432,7 @@ async function startServer() {
   }
   app.listen(PORT, () => {
     console.log(`crm-mvp backend http://localhost:${PORT}`);
+    startVkLongPoll(prisma).catch(e => console.error("[vk-longpoll] fatal:", e));
   });
 }
 

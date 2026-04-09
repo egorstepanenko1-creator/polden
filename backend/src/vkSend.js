@@ -5,7 +5,7 @@
 const VK_API = 'https://api.vk.com/method/messages.send';
 
 /**
- * Клавиатура: Меню | Заявка | Оператор
+ * Главная клавиатура: Оформить заказ | Меню | Помощь
  */
 export function vkMainKeyboardJson() {
   return JSON.stringify({
@@ -13,15 +13,47 @@ export function vkMainKeyboardJson() {
     inline: false,
     buttons: [
       [
-        { action: { type: 'text', label: 'Меню', payload: '{}' }, color: 'secondary' },
-        { action: { type: 'text', label: 'Оформить заказ', payload: '{}' }, color: 'primary' }
+        { action: { type: 'text', label: 'Собрать свой обед 🍱', payload: '{}' }, color: 'primary' }
       ],
       [
-        { action: { type: 'text', label: 'Оставить заявку', payload: '{}' }, color: 'secondary' },
-        { action: { type: 'text', label: 'Связаться с оператором', payload: '{}' }, color: 'secondary' }
+        { action: { type: 'text', label: 'Мой заказ', payload: '{}' }, color: 'positive' }
+      ],
+      [
+        { action: { type: 'text', label: 'Меню', payload: '{}' }, color: 'secondary' },
+        { action: { type: 'text', label: 'Помощь', payload: '{}' }, color: 'secondary' }
       ]
     ]
   });
+}
+
+/**
+ * Получить имя пользователя VK по vkUserId.
+ * @param {string|number} vkUserId
+ * @returns {Promise<string|null>}
+ */
+export async function fetchVkUserName(vkUserId) {
+  const token = (process.env.VK_GROUP_ACCESS_TOKEN || '').trim();
+  if (!token || !vkUserId) return null;
+  try {
+    const params = new URLSearchParams({
+      user_ids: String(vkUserId),
+      fields: 'first_name,last_name',
+      access_token: token,
+      v: '5.131'
+    });
+    const r = await fetch('https://api.vk.com/method/users.get', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    const j = await r.json().catch(() => null);
+    const user = j?.response?.[0];
+    if (!user || user.deactivated) return null;
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

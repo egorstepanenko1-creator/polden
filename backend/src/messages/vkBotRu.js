@@ -1,179 +1,141 @@
-/**
- * Тексты VK-бота (RU): коротко, прямой заказ в приоритете, CRM — источник меню.
- */
-
 import { DELIVERY_RULE_SHORT_RU } from '../deliveryFeePolicy.js';
 
 export { DELIVERY_RULE_SHORT_RU };
 
 export const VK_BOT_DEFAULT_OPERATOR_HINT =
-  'Напишите сюда или позвоните — подскажем по меню и доставке. Кнопка «Меню» — состав и цены на завтра из CRM.';
+  'Напишите нам — ответим быстро. Принимаем заказы до 21:00, доставляем с 11:30 до 14:00.\n\nЧтобы оформить заказ — нажмите «Оформить заказ 🍱».';
 
-export const MSG_LEAD_CANCELLED = 'Ок, прервали. Выберите действие кнопками ниже.';
+export const MSG_LEAD_CANCELLED = 'Окей, прервали. Чем могу помочь?';
 
 export const MSG_MENU_FOOTER =
-  'Оформить заказ — на завтра, те же позиции и цены, что в меню выше.\nСвязаться с оператором — вопрос или помощь.\nОставить заявку — оператор свяжется и оформит при необходимости.';
+  'Нажмите «Оформить заказ 🍱» — оформим по шагам за минуту.';
 
-export const MSG_MENU_NO_BRANCH = 'Точки доставки в CRM не настроены. Напишите оператору или оставьте заявку.';
+export const MSG_MENU_NO_BRANCH = 'Меню пока не заполнено. Напишите нам — подскажем.';
 
-/** Несколько филиалов без POLDEN_VK_DEFAULT_BRANCH_ID / POLDEN_VK_ORDER_PROBE_BRANCH_ID */
 export const MSG_MENU_MULTI_BRANCH_HINT =
-  'Несколько точек доставки: сначала нажмите «Оформить заказ» и выберите номер точки — там же увидите меню на завтра.\n\nЧтобы «Меню» открывалось сразу, задайте в .env бэкенда POLDEN_VK_DEFAULT_BRANCH_ID или POLDEN_VK_ORDER_PROBE_BRANCH_ID (id точки из CRM).';
+  'Нажмите «Оформить заказ 🍱» — выберете точку и увидите актуальное меню.';
 
 /** @param {string} branchName @param {string} date */
 export function MSG_MENU_EMPTY_CRM(branchName, date) {
-  return `Точка: ${branchName}\nДата: ${date} (завтра)\n\nПозиции в CRM на этот день ещё не заполнены. Добавьте их в разделе «Меню на день».`;
+  return `Меню на ${date} ещё не опубликовано. Напишите нам — уточним.`;
 }
 
 /** @param {string} branchName @param {string} date @param {string} listBlock */
 export function MSG_MENU_CRM_PRIMARY(branchName, date, listBlock) {
-  return `Меню на завтра (из CRM)\n${branchName} · ${date}\n\n${listBlock}\n\nОформить заказ — кнопка ниже, состав и цены совпадают с этим списком.`;
+  return `Меню на завтра, ${date}:\n\n${listBlock}`;
 }
 
-export const MSG_MENU_OPTIONAL_CONTENT_SEPARATOR = '── Дополнительно (контент-пайплайн) ──';
+export const MSG_MENU_OPTIONAL_CONTENT_SEPARATOR = '';
+export const MSG_VK_MENU_TRUNC_HINT = 'Подробности у оператора.';
+export const MSG_VK_MENU_CONTEXT_LINE = '';
+export const MSG_MENU_EMPTY = 'Меню на завтра пока не готово. Уточните у оператора.';
+export const MSG_MENU_BODY_PLACEHOLDER = '';
 
-export const MSG_VK_MENU_TRUNC_HINT = 'Продолжение по ссылке ниже или у оператора.';
-
-/** Перед текстом MENU_DAILY при опциональном приложении */
-export const MSG_VK_MENU_CONTEXT_LINE = 'Материал из контент-пайплайна (не заменяет меню CRM выше):';
-
-export const MSG_MENU_EMPTY =
-  'Меню на завтра в CRM не заполнено. Заполните «Меню на день» в CRM на нужную точку и дату.';
-
-export const MSG_ASK_NAME = 'Как вас зовут? (или «Отмена»)';
-
-export const MSG_NAME_TOO_SHORT = 'Имя не короче 2 символов или «Отмена».';
-
-export const MSG_ASK_PHONE = 'Телефон, например +7 900 000-00-00:';
-
-export const MSG_PHONE_INVALID =
-  'Нужен номер РФ: 11 цифр, с 7. Или «Отмена».';
-
+export const MSG_ASK_NAME = 'Как вас зовут?';
+export const MSG_NAME_TOO_SHORT = 'Введите имя (минимум 2 буквы):';
+export const MSG_ASK_PHONE = 'Ваш номер телефона:';
+export const MSG_PHONE_INVALID = 'Не похоже на номер. Попробуйте в формате +7 900 000-00-00:';
 export const MSG_ASK_ADDRESS = 'Адрес доставки:';
-
-export const MSG_ADDRESS_TOO_SHORT = 'Адрес не короче 3 символов или «Отмена».';
-
-export const MSG_ASK_DELIVERY_DATE = 'Желаемая дата доставки (как вам удобно текстом):';
-
-export const MSG_DATE_EMPTY = 'Укажите дату или «Отмена».';
-
-export const MSG_ASK_COMMENT = 'Комментарий к заявке («-» если не нужен):';
+export const MSG_ADDRESS_TOO_SHORT = 'Уточните адрес подробнее:';
+export const MSG_ASK_DELIVERY_DATE = 'На какую дату? (например: завтра, 15 апреля):';
+export const MSG_DATE_EMPTY = 'Укажите дату:';
+export const MSG_ASK_COMMENT = 'Комментарий к заказу? (или напишите «-»):';
 
 export const MSG_LEAD_ACCEPTED =
-  'Заявку приняли. Оператор свяжется и уточнит детали.\n\nЕсли хотите сразу заказ на завтра по меню CRM — нажмите «Оформить заказ».';
+  'Заявку приняли ✅ Оператор свяжется с вами и уточнит детали.';
 
 export const MSG_IDLE_CHOOSE =
-  'Оформить заказ — на завтра по меню из CRM.\nМеню — цены и позиции на завтра.\nСвязаться с оператором — помощь.\nОставить заявку — оформит оператор.';
+  'Нажмите «Оформить заказ 🍱» — оформим по шагам за минуту.';
 
-export const MSG_ORDER_NO_BRANCHES = 'Точки доставки не настроены — заказ из бота недоступен.';
+export const MSG_ORDER_NO_BRANCHES =
+  'Заказ через бота временно недоступен. Напишите нам — оформим вручную.';
 
 export const MSG_ORDER_FALLBACK_LEAD =
-  'Оставьте заявку кнопкой «Оставить заявку» — оператор оформит и перезвонит.';
+  'Оставьте заявку кнопкой ниже — оператор свяжется и оформит заказ.';
 
 export const MSG_ORDER_MENU_EMPTY =
-  'На завтра в CRM нет позиций с названием — прямой заказ из бота сейчас недоступен.';
+  'Меню на завтра ещё не готово. Напишите нам — уточним.';
 
 /** @param {string} branchName @param {string} date */
 export function MSG_ORDER_INTRO_SINGLE_BRANCH(branchName, date) {
-  return `Заказ на ${date} (завтра), точка «${branchName}». Ниже — то же меню, что в CRM.`;
+  return `Заказ на завтра, ${date}. Выбираем блюда:`;
 }
 
 /** @param {string} list @param {string} date */
 export function MSG_ORDER_PICK_BRANCH(list, date) {
-  return `Заказ на ${date} (завтра). Выберите точку номером:\n${list}`;
+  return `Заказ на завтра, ${date}. Выберите точку доставки:\n${list}`;
 }
 
-export const MSG_ORDER_BRANCH_HINT = 'Ответьте одной цифрой или «Отмена».';
+export const MSG_ORDER_BRANCH_HINT = 'Ответьте цифрой или напишите «Отмена».';
 
 /** @param {number} max */
 export function MSG_ORDER_BRANCH_INVALID(max) {
-  return `Нужен номер от 1 до ${max}. Или «Отмена».`;
+  return `Введите цифру от 1 до ${max}.`;
 }
 
 /** @param {string} name @param {string} date */
 export function MSG_ORDER_BRANCH_PICKED(name, date) {
-  return `Точка: «${name}», дата: ${date}.`;
+  return `Точка: ${name}, дата: ${date}.`;
 }
 
 export const MSG_ORDER_ITEMS_HINT =
-  'Позиции одной строкой, например:\n1x2 — две порции позиции 1\n1 2, 3 1 — то же через пробел или запятую\nПозиции 1–10, количество 1–99.\n«Сброс» — очистить корзину.\n\n' +
+  'Введите позиции, например: 1, 3, 5 или 1x2 (две порции).\n\n' +
   DELIVERY_RULE_SHORT_RU;
 
-/** Старт пошагового сценария (после выбора точки). */
+/** @param {string} date */
 export function MSG_ORDER_GUIDE_INTRO(date) {
-  return (
-    `Соберём заказ по шагам (меню на ${date}).\n` +
-    `${DELIVERY_RULE_SHORT_RU}\n\n` +
-    'На каждом шаге можно ответить цифрой или написать корзину одной строкой (например 1x1, 3x1) — сразу откроется проверка заказа.'
-  );
+  return `Собираем заказ на ${date}.\n\n${DELIVERY_RULE_SHORT_RU}`;
 }
 
 /**
- * @param {string} title категория
+ * @param {string} title
  * @param {Array<{ position: number, name: string }>} slots
  */
 export function MSG_ORDER_GUIDE_CATEGORY_PICK(title, slots) {
   const lines = slots.map((r, i) => `${i + 1} — ${String(r.name).trim()}`).join('\n');
-  const maxDigit = slots.length;
-  return (
-    `«${title}» — выберите вариант:\n${lines}\n0 — пропустить раздел\n\n` +
-    `Ответьте цифрой 0…${maxDigit}.`
-  );
+  return `${title}:\n${lines}\n0 — пропустить\n\nВыберите цифру 0–${slots.length}.`;
 }
 
-/** После выбора блюда в категории. */
+/** @param {string} title */
 export function MSG_ORDER_GUIDE_AFTER_PICK(title) {
-  return (
-    `Добавлено в корзину (${title}).\n\n` +
-    '«Добавить ещё» — взять ещё одно блюдо из этого раздела.\n' +
-    '«Дальше» — перейти к следующему разделу.'
-  );
+  return `Добавлено ✓\n\nНажмите «Добавить ещё» или «Дальше».`;
 }
 
+/** @param {string} title */
 export function MSG_ORDER_GUIDE_MORE_UNCLEAR(title) {
-  return `Напишите «Добавить ещё» или «Дальше» (раздел «${title}»).`;
+  return `Напишите «Добавить ещё» или «Дальше».`;
 }
 
-/** @param {number} maxChoice 1 или 2 */
+/** @param {number} maxChoice */
 export function MSG_ORDER_GUIDE_PICK_INVALID(maxChoice) {
-  return `Ответьте цифрой от 0 до ${maxChoice} или напишите корзину текстом (см. подсказку выше).`;
+  return `Введите цифру от 0 до ${maxChoice}.`;
 }
 
 /**
  * @param {Array<{ position: number, name: string }>} extras
  */
 export function MSG_ORDER_GUIDE_EXTRAS(extras) {
-  const block = extras
-    .map((r) => `${r.position}. ${String(r.name).trim()}`)
-    .join('\n');
-  return (
-    `Дополнительно (по желанию):\n${block}\n\n` +
-    'Напишите позиции и количество, например: 7x1, 8x2\n' +
-    'Или «Пропустить» — перейти к проверке заказа без допов.\n\n' +
-    DELIVERY_RULE_SHORT_RU
-  );
+  const block = extras.map((r) => `${r.position}. ${String(r.name).trim()}`).join('\n');
+  return `Дополнительно (по желанию):\n${block}\n\nНапишите номера, например: 7, 8 или «Пропустить».\n\n${DELIVERY_RULE_SHORT_RU}`;
 }
 
 export const MSG_ORDER_GUIDE_EXTRAS_RETRY =
-  'Проверьте номера позиций и количество. Пример: 7x1, 9x2. Или «Пропустить».';
-
+  'Укажите номера позиций, например: 7, 9. Или «Пропустить».';
 export const MSG_ORDER_GUIDE_EXTRAS_INVALID =
-  'Не разобрал. Укажите допы как 7x1, 8x2 или напишите «Пропустить».';
-
+  'Не разобрал. Укажите номера или напишите «Пропустить».';
 export const MSG_ORDER_GUIDE_EMPTY_CART =
-  'В корзине пока нет позиций. Выберите блюда по шагам или напишите корзину текстом.';
-
+  'Корзина пустая. Выберите блюда.';
 export const MSG_ORDER_GUIDE_FALLBACK_HINT =
-  'Можно продолжить по шагам (ответ цифрой) или исправить строку позиций.';
+  'Ответьте цифрой или введите позиции.';
 
 /**
- * @param {string} linesBlock строки «• Название × n»
+ * @param {string} linesBlock
  * @param {{ sub: string, fee: string, total: string }} p
  */
 export function MSG_ORDER_REVIEW_WITH_DELIVERY(linesBlock, p) {
   return (
     `${MSG_ORDER_REVIEW_HEADER}\n${linesBlock}\n\n` +
-    `Позиции: ${p.sub} ₽\n` +
+    `Блюда: ${p.sub} ₽\n` +
     `Доставка: ${p.fee}\n` +
     `Итого: ${p.total} ₽\n\n` +
     `${DELIVERY_RULE_SHORT_RU}\n\n` +
@@ -181,49 +143,40 @@ export function MSG_ORDER_REVIEW_WITH_DELIVERY(linesBlock, p) {
   );
 }
 
-export const MSG_ORDER_CART_CLEARED = 'Корзина пуста. Введите позиции снова.';
-
-export const MSG_ORDER_REVIEW_HEADER = 'Проверьте заказ:';
-
+export const MSG_ORDER_CART_CLEARED = 'Корзина очищена. Введите позиции заново.';
+export const MSG_ORDER_REVIEW_HEADER = 'Ваш заказ:';
 export const MSG_ORDER_REVIEW_CONFIRM =
-  '«Да» / «ок» — продолжить (имя и телефон).\nНовая строка позиций — заменить состав.\n«Назад» — к позициям.';
-
+  '«Да» — оформить.\nИли напишите новый состав чтобы изменить.';
 export const MSG_ORDER_REVIEW_UNCLEAR =
-  'Не разобрал. «Да» — дальше, «назад» — к позициям, или строка позиций (1x2, 3 1 …).';
-
-export const MSG_ORDER_BACK_TO_ITEMS = 'Введите позиции снова (формат выше).';
-
-export const MSG_ORDER_ASK_NAME = 'Имя для заказа:';
-
-export const MSG_ORDER_ASK_COMMENT = 'Комментарий к заказу («-» пропустить):';
-
-export const MSG_ORDER_STATE_BROKEN = 'Сессия сбилась. Начните с «Оформить заказ» или оставьте заявку.';
+  'Напишите «да» чтобы подтвердить, или «назад» чтобы изменить состав.';
+export const MSG_ORDER_BACK_TO_ITEMS = 'Введите позиции заново:';
+export const MSG_ORDER_ASK_NAME = 'Ваше имя:';
+export const MSG_ORDER_ASK_COMMENT = 'Комментарий к заказу? (или «Пропустить»):';
+export const MSG_ORDER_STATE_BROKEN =
+  'Что-то пошло не так. Нажмите «Собрать свой обед 🍱» и начнём заново.';
 
 /** @param {string} err */
 export function MSG_ORDER_QUOTE_FAIL(err) {
-  return `Не удалось посчитать: ${err}`;
+  return `Не смогли посчитать сумму. Напишите нам — оформим вручную.`;
 }
 
 /** @param {string} err */
 export function MSG_ORDER_CREATE_FAIL(err) {
-  return `Не удалось создать заказ: ${err}`;
+  return `Не смогли оформить заказ. Напишите нам — оформим вручную.`;
 }
 
 /**
- * @param {string} id
- * @param {{ sub: string, fee: string, total: string }} sums рубли уже отформатированы
- * @param {string} lines кратко позиции
+ * @param {number} orderNum
+ * @param {string} lines
+ * @param {string} total
+ * @param {string|null} deliveryLine
  * @param {string} date
  */
-export function MSG_ORDER_CREATED(id, sums, lines, date) {
-  return (
-    `Заказ принят ✅\n№ ${id}\nДата: ${date}\n${lines}\n` +
-    `Позиции: ${sums.sub} ₽\nДоставка: ${sums.fee}\nИтого: ${sums.total} ₽\n\n` +
-    `${DELIVERY_RULE_SHORT_RU}\n\n` +
-    'При необходимости уточним по телефону.'
-  );
+export function MSG_ORDER_CREATED(orderNum, lines, total, deliveryLine, date) {
+  const totalSuffix = deliveryLine
+    ? ` руб. (в т.ч. доставка ${deliveryLine})`
+    : ' руб. (доставка бесплатно)';
+  return `Заказ №${orderNum} принят ✅\n${date}\n\n${lines}\n\nИтого: ${total}${totalSuffix}\n\nДоставим с 11:30 до 14:00. Чтобы изменить или отменить — нажмите кнопку ниже.`;
 }
 
-export const MSG_ORDER_LINK_PREFIX = 'Сайт:';
-
-export const MSG_MENU_BODY_PLACEHOLDER = 'Текст в CRM пустой.';
+export const MSG_ORDER_LINK_PREFIX = '';

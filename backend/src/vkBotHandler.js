@@ -13,7 +13,8 @@ const STATES = {
   COLLECT_PHONE: 'COLLECT_PHONE',
   COLLECT_ADDRESS: 'COLLECT_ADDRESS',
   COLLECT_DATE: 'COLLECT_DATE',
-  COLLECT_COMMENT: 'COLLECT_COMMENT'
+  COLLECT_COMMENT: 'COLLECT_COMMENT',
+  AWAIT_CANCEL_CONFIRM: 'AWAIT_CANCEL_CONFIRM'
 };
 
 function normalizePhoneRu(raw) {
@@ -76,6 +77,50 @@ function isLeadCollectionState(s) {
   );
 }
 
+async function findTodaysActiveOrder(prisma, peerId) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return prisma.deliveryOrder.findFirst({
+    where: {
+      attributionJson: { contains: peerId },
+      status: { in: ['NEW', 'CONFIRMED'] },
+      createdAt: { gte: today, lt: tomorrow }
+    },
+    include: { items: true },
+    orderBy: { createdAt: 'desc' }
+  });
+}
+
+async function formatOrderSummary(prisma, order) {
+  let nameMap = new Map();
+  if (prisma && order.branchId && order.deliveryDate) {
+    try {
+      const rows = await prisma.menuDayItem.findMany({
+        where: { branchId: order.branchId, date: order.deliveryDate },
+        select: { position: true, name: true }
+      });
+      nameMap = new Map(rows.map(r => [r.position, r.name]));
+    } catch {}
+  }
+  const itemLines = (order.items || []).map(i => {
+    const name = nameMap.get(i.position) || ('поз. ' + i.position);
+    return '  • ' + name + (i.qty > 1 ? ' ×' + i.qty : '');
+  }).join('\n') || '  (пусто)';
+  const statusMap = { NEW: 'Новый', CONFIRMED: 'Подтверждён', KITCHEN: 'На кухне', DELIVERING: 'Доставляется', DONE: 'Доставлен', CANCELED: 'Отменён' };
+  const status = statusMap[order.status] || order.status;
+  const feeK = order.deliveryFeeKopeks || 0;
+  const subK = order.itemsSubtotalKopeks || 0;
+  let totalStr;
+  if (feeK > 0 && subK > 0) {
+    totalStr = 'Доставка: ' + Math.round(feeK / 100) + ' руб.\nСумма заказа: ' + Math.round(subK / 100) + ' руб.\nИтого: ' + Math.round(order.totalAmount / 100) + ' руб.';
+  } else {
+    totalStr = 'Итого: ' + (order.totalAmount ? Math.round(order.totalAmount / 100) + ' руб. (доставка бесплатно)' : '—');
+  }
+  return '📦 Заказ на ' + (order.deliveryDate || '—') + '\n' + itemLines + '\n' + totalStr + '\nАдрес: ' + (order.address || '—') + '\nСтатус: ' + status;
+}
+
 /**
  * @param {import('@prisma/client').PrismaClient} prisma
  * @param {{ peer_id: number, from_id: number, text?: string }} message
@@ -89,6 +134,7 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
   if (isDuplicateVkInbound(peerId, message)) return;
 
   let state = await prisma.vkConversationState.findUnique({ where: { peerId } });
+  const isNewUser = !state;
   if (!state) {
     state = await prisma.vkConversationState.create({
       data: { peerId, vkUserId, currentState: STATES.IDLE }
@@ -98,6 +144,19 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
       where: { peerId },
       data: { vkUserId }
     });
+  }
+
+  // Приветствие для новых пользователей
+  if (isNewUser) {
+    await vkSendMessage(
+      peerId,
+      'Привет! 👋 Готовые обеды с доставкой в Чебаркуле.\n\n' +
+      'Принимаем заказы до 21:00, доставляем с 11:30 до 14:00.\n' +
+      'Доставка бесплатная от 400 руб.\n\n' +
+      'Нажмите «Оформить заказ 🍱» — займёт 1 минуту.',
+      { keyboardJson: KB }
+    );
+    return;
   }
 
   const cmd = normCmd(text);
@@ -143,8 +202,9 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
   }
 
   const wantStructuredOrder =
-    text === 'Оформить заказ' ||
-    cmd.includes('оформить заказ') ||
+    text === 'Оформить заказ' || text === 'Заказать 🍱' || text === 'Собрать свой обед 🍱' ||
+    cmd === 'заказать' || cmd === 'собрать свой обед' ||
+    cmd.includes('оформить заказ') || cmd.includes('собрать обед') ||
     cmd === 'сделать заказ' ||
     cmd.includes('сделать заказ');
 
@@ -162,12 +222,80 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
     cmd.includes('связаться') ||
     cmd.includes('оператор') ||
     text === 'Связаться с оператором' ||
-    cmd.includes('связаться с оператором');
+    cmd.includes('связаться с оператором') || text === 'Помощь';
+  const wantMyOrder = cmd === 'мой заказ' || cmd === 'статус' || cmd === 'статус заказа' || text === 'Мой заказ';
+  const wantCancelOrder = cmd === 'отменить заказ' || cmd === 'отмена заказа' || cmd === 'удалить заказ' || text === 'Отменить заказ';
+  const wantEditOrder = cmd === 'изменить заказ' || cmd === 'изменить' || text === 'Изменить заказ';
+
+  if (wantMyOrder || wantCancelOrder || wantEditOrder) {
+    const activeOrder = await findTodaysActiveOrder(prisma, peerId);
+    if (!activeOrder) {
+      await vkSendMessage(peerId, 'Активных заказов на сегодня не найдено.', { keyboardJson: KB });
+      return;
+    }
+    if (wantMyOrder) {
+      const myOrderKb = JSON.stringify({
+        one_time: false, inline: false,
+        buttons: [
+          [{ action: { type: 'text', label: 'Изменить заказ', payload: '{}' }, color: 'secondary' },
+           { action: { type: 'text', label: 'Отменить заказ', payload: '{}' }, color: 'negative' }]
+        ]
+      });
+      await vkSendMessage(peerId, await formatOrderSummary(prisma, activeOrder), { keyboardJson: myOrderKb });
+      return;
+    }
+    if (wantCancelOrder) {
+      await prisma.vkConversationState.update({
+        where: { peerId },
+        data: { currentState: STATES.AWAIT_CANCEL_CONFIRM, draftComment: String(activeOrder.id) }
+      });
+      const cancelKb = JSON.stringify({
+        one_time: true, inline: false,
+        buttons: [
+          [{ action: { type: 'text', label: 'Да, отменить', payload: '{"confirmCancel":true}' }, color: 'negative' }],
+          [{ action: { type: 'text', label: 'Нет, оставить', payload: '{"confirmCancel":false}' }, color: 'positive' }]
+        ]
+      });
+      await vkSendMessage(peerId,
+        (await formatOrderSummary(prisma, activeOrder)) + '\n\nОтменить этот заказ?',
+        { keyboardJson: cancelKb }
+      );
+      return;
+    }
+    if (wantEditOrder) {
+      await prisma.deliveryOrder.update({ where: { id: activeOrder.id }, data: { status: 'CANCELED' } });
+      await prisma.vkConversationState.update({
+        where: { peerId },
+        data: { currentState: STATES.IDLE, draftComment: '' }
+      });
+      await vkSendMessage(peerId, 'Старый заказ отменён. Собираем новый:', { keyboardJson: null });
+      await startVkStructuredOrder(prisma, peerId, vkUserId, vkSendMessage, KB);
+      return;
+    }
+  }
 
   if (state.currentState === STATES.IDLE || wantMenu || wantLead || wantOperator || wantStructuredOrder) {
     // «Оформить заказ» раньше срабатывало только из IDLE: из сценария лида текст шёл в имя/телефон и
     // заканчивался MSG_LEAD_ACCEPTED — сбрасываем черновик заявки и открываем структурированный заказ.
     if (wantStructuredOrder && (state.currentState === STATES.IDLE || isLeadCollectionState(state.currentState))) {
+      // Если уже есть активный заказ сегодня — показываем его, не начинаем новый
+      const existingOrder = await findTodaysActiveOrder(prisma, peerId);
+      if (existingOrder) {
+        const myOrderKb = JSON.stringify({
+          one_time: false, inline: false,
+          buttons: [
+            [{ action: { type: 'text', label: 'Изменить заказ', payload: '{}' }, color: 'secondary' },
+             { action: { type: 'text', label: 'Отменить заказ', payload: '{}' }, color: 'negative' }],
+            [{ action: { type: 'text', label: 'Оформить заказ', payload: '{}' }, color: 'primary' }]
+          ]
+        });
+        await vkSendMessage(peerId,
+          'У вас уже есть заказ на сегодня:\n\n' + (await formatOrderSummary(prisma, existingOrder)) +
+          '\n\nЧтобы изменить — нажмите «Изменить заказ» (старый отменится, оформите новый).\nЧтобы добавить второй заказ — «Оформить заказ».',
+          { keyboardJson: myOrderKb }
+        );
+        return;
+      }
       if (isLeadCollectionState(state.currentState)) {
         await prisma.vkConversationState.update({
           where: { peerId },
@@ -310,11 +438,49 @@ export async function handleVkIncomingMessage(prisma, message, rawObjectForAudit
       await vkSendMessage(peerId, VkMsg.MSG_LEAD_ACCEPTED, { keyboardJson: KB });
       return;
     }
+    case STATES.AWAIT_CANCEL_CONFIRM: {
+      const orderId = state.draftComment || '';
+      // Читаем payload кнопки
+      let payloadData = {};
+      try { payloadData = JSON.parse(rawObjectForAudit?.message?.payload || '{}'); } catch {}
+      const confirmYes = payloadData.confirmCancel === true || cmd === 'да' || cmd === 'yes';
+      await prisma.vkConversationState.update({
+        where: { peerId },
+        data: { currentState: STATES.IDLE, draftComment: '' }
+      });
+      if (confirmYes && orderId) {
+        await prisma.deliveryOrder.update({ where: { id: orderId }, data: { status: 'CANCELED' } });
+        await vkSendMessage(peerId, '✅ Заказ отменён.', { keyboardJson: KB });
+      } else {
+        await vkSendMessage(peerId, 'Хорошо, заказ остаётся.', { keyboardJson: KB });
+      }
+      return;
+    }
     default:
       break;
   }
 
   if (state.currentState === STATES.IDLE) {
-    await vkSendMessage(peerId, VkMsg.MSG_IDLE_CHOOSE, { keyboardJson: KB });
+    // Короткие реакции — не отвечаем
+    const SILENT_REPLIES = new Set([
+      'спасибо', 'спс', 'благодарю', 'хорошо', 'ок', 'ok', 'понял', 'поняла',
+      'понятно', 'пожалуйста', 'пжлст', 'отлично', 'класс', 'супер', 'ясно',
+      '👍', '❤️', '🙏', '😊', '🔥'
+    ]);
+    if (SILENT_REPLIES.has(cmd) || text.length <= 2) return;
+
+    // Пишут числами по-старинке: "1, 3, 5" или "1 3 5" — направляем в заказ
+    const looksLikePositions = /^[\d\s,xхXХ]+$/.test(text.trim()) && /\d/.test(text);
+    if (looksLikePositions) {
+      await vkSendMessage(
+        peerId,
+        'Вижу позиции меню 😊 Теперь заказ оформляется через бота по шагам — нажмите «Оформить заказ», это займёт минуту.',
+        { keyboardJson: KB }
+      );
+      return;
+    }
+
+    // Приветствие или вопрос — направляем к оператору
+    await vkSendMessage(peerId, OPERATOR_HINT, { keyboardJson: KB });
   }
 }
