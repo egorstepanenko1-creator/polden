@@ -46,13 +46,11 @@ export function OperatorDeliveryWorkspace({
   loading,
   listErr,
   searchScoped,
-  onSearchScopedChange
+  onSearchScopedChange,
+  menuItems
 }) {
   const [q, setQ] = useState('');
   const [searching, setSearching] = useState(false);
-  /** @type {'all' | 'vk' | 'vk_new'} */
-  const [vkOrderScope, setVkOrderScope] = useState('all');
-
   useEffect(() => {
     setQ('');
     onSearchResults(null);
@@ -100,53 +98,10 @@ export function OperatorDeliveryWorkspace({
   const displayOrders = searchResults !== null ? searchResults : orders;
   const isSearchMode = searchResults !== null;
 
-  const ordersForCards = useMemo(() => {
-    if (vkOrderScope === 'all') return displayOrders;
-    if (vkOrderScope === 'vk') return displayOrders.filter((o) => o.sourceChannel === 'VK');
-    return displayOrders.filter((o) => o.sourceChannel === 'VK' && (o.status || 'NEW') === 'NEW');
-  }, [displayOrders, vkOrderScope]);
+  const ordersForCards = displayOrders;
 
   return (
     <section aria-labelledby="operator-orders-heading">
-      <h2 id="operator-orders-heading" style={{ fontSize: '1.25rem', margin: '0 0 12px' }}>
-        Оператор · заказы на доставку
-      </h2>
-
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 8,
-          alignItems: 'center',
-          marginBottom: 12,
-          fontSize: 13
-        }}
-        role="group"
-        aria-label="Фильтр по каналу VK"
-      >
-        <span style={{ fontWeight: 600, color: '#555' }}>VK:</span>
-        {[
-          { id: 'all', label: 'Все заказы' },
-          { id: 'vk', label: 'Только VK' },
-          { id: 'vk_new', label: 'VK · новые' }
-        ].map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setVkOrderScope(id)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: 999,
-              border: `1px solid ${vkOrderScope === id ? '#4527a0' : '#ccc'}`,
-              background: vkOrderScope === id ? '#ede7f6' : '#fff',
-              fontWeight: vkOrderScope === id ? 700 : 500,
-              cursor: 'pointer'
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
 
       <div
         style={{
@@ -264,7 +219,7 @@ export function OperatorDeliveryWorkspace({
         {isSearchMode ? (
           <p style={{ margin: '6px 0 0', fontSize: 13, color: '#1565c0' }}>
             Найдено: {displayOrders.length}
-            {vkOrderScope !== 'all' ? ` · с фильтром VK: ${ordersForCards.length}` : ''}
+            
             <button
               type="button"
               onClick={() => {
@@ -288,19 +243,14 @@ export function OperatorDeliveryWorkspace({
       <div style={{ marginTop: 8 }}>
         {ordersForCards.length === 0 && !loading ? (
           <p style={{ color: '#666', fontSize: 15 }}>
-            {isSearchMode
-              ? vkOrderScope !== 'all'
-                ? 'Нет заказов под выбранный фильтр VK.'
-                : 'Ничего не найдено.'
-              : vkOrderScope !== 'all'
-                ? 'Нет заказов VK на эту дату по фильтру.'
-                : 'Нет заказов на эту дату.'}
+            {isSearchMode ? 'Ничего не найдено.' : 'Нет заказов на эту дату.'}
           </p>
         ) : (
           ordersForCards.map((o) => (
             <OperatorOrderCard
               key={o.id}
               order={o}
+              menuItems={menuItems}
               selected={selected?.id === o.id}
               onSelect={() => onSelect(o)}
               statusUpdating={statusBusyId === o.id}

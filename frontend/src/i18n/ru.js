@@ -61,10 +61,10 @@ export function contentStatusLabel(code) {
 /** Статусы лидов VK (значения в API — англ.). */
 export function vkLeadStatusLabel(code) {
   const m = {
-    NEW: 'Новый',
-    CONTACTED: 'В контакте',
-    CONVERTED: 'Конвертирован',
-    REJECTED: 'Отклонён'
+    NEW: '⏳ Не обработан',
+    CONTACTED: '📞 Перезвонили',
+    CONVERTED: '✅ Заказ создан',
+    REJECTED: '❌ Отказ'
   };
   return m[String(code || '')] || code;
 }

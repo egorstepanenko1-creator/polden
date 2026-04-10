@@ -162,6 +162,7 @@ export async function buildVkCustomerList(token, prisma) {
       address: od.address || md.address || null,
       lastMessageDate: ts ? new Date(ts * 1000).toISOString().slice(0, 10) : null,
       lastMessageTs: ts,
+      hasOrder: orderByPeer.has(peerStr),
       phoneSource: od.phone ? 'order' : md.phone ? 'message' : null,
       addrSource: od.address ? 'order' : md.address ? 'message' : null
     };

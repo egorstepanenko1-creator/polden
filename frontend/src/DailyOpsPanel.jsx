@@ -1,104 +1,36 @@
 import { rubKopeks } from './i18n/format.js';
 
-const SOURCE_KEYS = ['SITE', 'VK', 'MANUAL', 'PHONE'];
-const SOURCE_LABEL = { SITE: 'Сайт', VK: 'VK', MANUAL: 'Вручную', PHONE: 'Телефон' };
-
-const STATUS_KEYS = ['NEW', 'CONFIRMED', 'KITCHEN', 'DELIVERING', 'DONE', 'CANCELED'];
 const STATUS_LABEL = {
   NEW: 'Новый',
-  CONFIRMED: 'Подтверждён',
+  CONFIRMED: 'Принято',
   KITCHEN: 'Кухня',
   DELIVERING: 'Доставка',
   DONE: 'Завершён',
   CANCELED: 'Отменён'
 };
 
-const STATUS_BAR_COLOR = {
-  NEW: '#1565c0',
-  CONFIRMED: '#2e7d32',
-  KITCHEN: '#ef6c00',
+const STATUS_DOT = {
+  NEW:        '#1565c0',
+  CONFIRMED:  '#2e7d32',
+  KITCHEN:    '#ef6c00',
   DELIVERING: '#6a1b9a',
-  DONE: '#37474f',
-  CANCELED: '#c62828'
+  DONE:       '#37474f',
+  CANCELED:   '#c62828'
 };
-
-function deltaNum(n) {
-  if (n === 0) return '±0';
-  return n > 0 ? `+${n}` : String(n);
-}
-
-function deltaRub(k) {
-  if (k === 0) return '±0';
-  const sign = k > 0 ? '+' : '−';
-  const abs = Math.abs(k);
-  const rub = (abs / 100).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  return `${sign}${rub} ₽`;
-}
-
-function miniCardStyle() {
-  return {
-    border: '1px solid #e0e0e0',
-    borderRadius: 10,
-    padding: '12px 14px',
-    background: '#fff',
-    minWidth: 0
-  };
-}
-
-/** @param {{ label: string, value: string, sub?: string, warn?: boolean }} p */
-function StatCard({ label, value, sub, warn }) {
-  return (
-    <div style={{ ...miniCardStyle(), borderColor: warn ? '#ffcdd2' : '#e0e0e0' }}>
-      <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, lineHeight: 1.15 }}>{value}</div>
-      {sub ? <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>{sub}</div> : null}
-    </div>
-  );
-}
-
-/** @param {{ total: number, counts: Record<string, number>, keys: string[], labels: Record<string, string>, colors?: Record<string, string> }} p */
-function MixBars({ total, counts, keys, labels, colors }) {
-  const t = Math.max(1, total);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {keys.map((k) => {
-        const c = counts[k] || 0;
-        const pct = Math.round((c / t) * 1000) / 10;
-        const bg = colors?.[k] || '#90a4ae';
-        return (
-          <div key={k}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-              <span>{labels[k] || k}</span>
-              <span style={{ fontWeight: 600 }}>
-                {c}
-                <span style={{ color: '#888', fontWeight: 400 }}> ({pct}%)</span>
-              </span>
-            </div>
-            <div style={{ height: 8, borderRadius: 4, background: '#eee', overflow: 'hidden' }}>
-              <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: bg, transition: 'width 0.2s' }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * @param {{
  *   primary: object,
- *   compare: object | null,
- *   deltas: object | null,
- *   compareDateLabel: string | null,
  *   loading: boolean,
- *   err: string
+ *   err: string,
+ *   onPatchStatus?: (orderId: string, status: string) => void
  * }} props
  */
-export function DailyOpsPanel({ primary, compare, deltas, compareDateLabel, loading, err }) {
+export function DailyOpsPanel({ primary, loading, err, onPatchStatus, orders }) {
   if (err) {
     return (
-      <section style={{ marginBottom: 20 }} aria-live="polite">
-        <div style={{ color: '#b00020', padding: 12, border: '1px solid #ffcdd2', borderRadius: 10 }} role="alert">
+      <section style={{ marginBottom: 16 }} aria-live="polite">
+        <div style={{ color: '#b00020', padding: 10, border: '1px solid #ffcdd2', borderRadius: 10, fontSize: 13 }}>
           {err}
         </div>
       </section>
@@ -107,8 +39,8 @@ export function DailyOpsPanel({ primary, compare, deltas, compareDateLabel, load
 
   if (loading && !primary) {
     return (
-      <section style={{ marginBottom: 20 }}>
-        <p style={{ margin: 0, color: '#666', fontSize: 14 }}>Загрузка операционной сводки…</p>
+      <section style={{ marginBottom: 16 }}>
+        <p style={{ margin: 0, color: '#999', fontSize: 13 }}>Загрузка сводки…</p>
       </section>
     );
   }
@@ -116,13 +48,9 @@ export function DailyOpsPanel({ primary, compare, deltas, compareDateLabel, load
   if (!primary) return null;
 
   const p = primary;
-  const hasCompare = Boolean(compare && deltas);
 
-  const ordersSub = hasCompare
-    ? `к дате ${compareDateLabel}: ${deltaNum(deltas.totalOrders)} заказ.`
-    : null;
-  const revSub = hasCompare ? `Δ выручки: ${deltaRub(deltas.totalRevenueKopeks)}` : 'сумма totalAmount';
-  const aovSub = hasCompare ? `Δ среднего чека: ${deltaRub(deltas.averageOrderValueKopeks)}` : 'выручка / заказы';
+  // kitchen summary: join with menu names if available (via topPositions)
+  const kitchenRows = p.topPositions || [];
 
   return (
     <section
@@ -130,131 +58,130 @@ export function DailyOpsPanel({ primary, compare, deltas, compareDateLabel, load
         marginBottom: 20,
         border: '1px solid #c8e6c9',
         borderRadius: 14,
-        padding: '14px 16px 18px',
-        background: 'linear-gradient(180deg, #f1f8f4 0%, #fff 48px)'
+        padding: '14px 16px',
+        background: 'linear-gradient(180deg,#f1f8f4 0%,#fff 56px)'
       }}
       aria-labelledby="daily-ops-heading"
     >
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <h2 id="daily-ops-heading" style={{ margin: 0, fontSize: '1.15rem' }}>
-          Операции на {p.deliveryDate}
+      {/* Шапка */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h2 id="daily-ops-heading" style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+          На {p.deliveryDate}
         </h2>
-        {loading ? <span style={{ fontSize: 13, color: '#666' }}>Обновление…</span> : null}
-      </div>
-      {hasCompare ? (
-        <p style={{ margin: '6px 0 14px', fontSize: 13, color: '#555' }}>
-          Сравнение с датой доставки <strong>{compare.deliveryDate}</strong> (дельты — выбранная минус соседняя).
-        </p>
-      ) : (
-        <p style={{ margin: '6px 0 14px', fontSize: 13, color: '#666' }}>
-          Заказы с датой доставки на выбранный день. Переключите «Сегодня / Завтра» для сравнения.
-        </p>
-      )}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: 10,
-          marginBottom: 16
-        }}
-      >
-        <StatCard
-          label="Заказы"
-          value={String(p.totalOrders)}
-          sub={ordersSub}
-          warn={p.totalOrders === 0}
-        />
-        <StatCard label="Выручка" value={rubKopeks(p.totalRevenueKopeks)} sub={revSub} />
-        <StatCard label="Средний чек" value={rubKopeks(p.averageOrderValueKopeks)} sub={aovSub} />
+        {loading ? <span style={{ fontSize: 12, color: '#999' }}>…</span> : null}
       </div>
 
+      {/* Ключевые цифры */}
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{p.totalOrders}</div>
+          <div style={{ fontSize: 12, color: '#666', marginTop: 3 }}>заказов</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{rubKopeks(p.totalRevenueKopeks)}</div>
+          <div style={{ fontSize: 12, color: '#666', marginTop: 3 }}>выручка</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{rubKopeks(p.averageOrderValueKopeks)}</div>
+          <div style={{ fontSize: 12, color: '#666', marginTop: 3 }}>средний чек</div>
+        </div>
+      </div>
+
+      {/* Статусы — компактная строка */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, fontSize: 13 }}>
+        {Object.entries(p.byStatus || {})
+          .filter(([, cnt]) => cnt > 0)
+          .map(([status, cnt]) => (
+            <span key={status} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: STATUS_DOT[status] || '#999', display: 'inline-block'
+              }} />
+              {STATUS_LABEL[status] || status}: <strong>{cnt}</strong>
+            </span>
+          ))}
+      </div>
+
+      {/* Внимание */}
       {p.attention?.length > 0 ? (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#555', marginBottom: 8 }}>
-            Внимание
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
-            {p.attention.map((a) => (
-              <li
-                key={a.code}
-                style={{
-                  marginBottom: 6,
-                  color: a.severity === 'warn' ? '#b71c1c' : '#1565c0'
-                }}
-              >
-                {a.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 14,
-          marginBottom: 14
-        }}
-      >
-        <div style={miniCardStyle()}>
-          <strong style={{ fontSize: 14 }}>Каналы</strong>
-          <MixBars total={p.totalOrders} counts={p.bySource} keys={SOURCE_KEYS} labels={SOURCE_LABEL} />
-          {hasCompare ? (
-            <div style={{ marginTop: 12, fontSize: 12, color: '#666', borderTop: '1px solid #eee', paddingTop: 8 }}>
-              Δ по каналам (к {compare.deliveryDate}):{' '}
-              {SOURCE_KEYS.map((k) => `${SOURCE_LABEL[k]} ${deltaNum(deltas.bySource[k] || 0)}`).join(' · ')}
+        <div style={{ marginBottom: 14 }}>
+          {p.attention.map((a) => (
+            <div key={a.code} style={{
+              fontSize: 13, padding: '6px 10px', borderRadius: 8,
+              background: a.severity === 'warn' ? '#fff3e0' : '#e3f2fd',
+              color: a.severity === 'warn' ? '#e65100' : '#1565c0', marginBottom: 4
+            }}>
+              ⚠ {a.message}
             </div>
-          ) : null}
-        </div>
-        <div style={miniCardStyle()}>
-          <strong style={{ fontSize: 14 }}>Статусы</strong>
-          <MixBars
-            total={p.totalOrders}
-            counts={p.byStatus}
-            keys={STATUS_KEYS}
-            labels={STATUS_LABEL}
-            colors={STATUS_BAR_COLOR}
-          />
-        </div>
-      </div>
-
-      {p.topPositions?.length > 0 ? (
-        <div style={{ ...miniCardStyle(), marginBottom: 12 }}>
-          <strong style={{ fontSize: 14 }}>Топ позиций меню (слот × кол-во)</strong>
-          <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, columns: 2, columnGap: 16 }}>
-            {p.topPositions.map((row) => (
-              <li key={row.position} style={{ breakInside: 'avoid' }}>
-                Слот {row.position}: {row.totalQty} шт.
-              </li>
-            ))}
-          </ul>
+          ))}
         </div>
       ) : null}
 
-      {p.latestOrders?.length > 0 ? (
-        <div style={miniCardStyle()}>
-          <strong style={{ fontSize: 14 }}>Последние заказы</strong>
-          <ul style={{ margin: '8px 0 0', paddingLeft: 0, listStyle: 'none', fontSize: 13 }}>
-            {p.latestOrders.map((o) => (
-              <li
-                key={o.id}
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '4px 10px',
-                  padding: '6px 0',
-                  borderBottom: '1px solid #f0f0f0'
-                }}
-              >
-                <span style={{ fontWeight: 600 }}>{o.customerName}</span>
-                <span style={{ color: '#666' }}>{STATUS_LABEL[o.status] || o.status}</span>
-                <span style={{ color: '#666' }}>{SOURCE_LABEL[o.sourceChannel] || o.sourceChannel}</span>
-                <span>{rubKopeks(o.totalAmount)}</span>
-              </li>
+      {/* Кухня — что готовить */}
+      {kitchenRows.length > 0 ? (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+            Кухня · {p.deliveryDate}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 13 }}>
+            {kitchenRows.map((row) => (
+              <span key={row.position}>
+                <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{row.position}</strong>
+                <span style={{ color: '#888' }}> — </span>
+                {row.totalQty} шт.
+              </span>
             ))}
-          </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Последние заказы — с кнопкой Принято */}
+      {(orders?.length > 0 || p.latestOrders?.length > 0) ? (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+            Последние заказы
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {(orders || p.latestOrders || []).map((o) => {
+              const isNew = o.status === 'NEW';
+              return (
+                <div key={o.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                  padding: '6px 8px', borderRadius: 8,
+                  background: isNew ? '#e3f2fd' : '#f5f5f5'
+                }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                    background: STATUS_DOT[o.status] || '#999'
+                  }} />
+                  <span style={{ fontWeight: 600, fontSize: 13, flex: '1 1 120px' }}>{o.customerName}</span>
+                  {Array.isArray(o.items) && o.items.length > 0 ? (
+                    <span style={{ fontSize: 12, color: '#888', fontFamily: 'monospace' }}>
+                      {o.items.map((i) => i.position).join('')}
+                    </span>
+                  ) : null}
+                  <span style={{ fontSize: 12, color: '#888' }}>{rubKopeks(o.totalAmount)}</span>
+                  {isNew && onPatchStatus ? (
+                    <button
+                      type="button"
+                      onClick={() => onPatchStatus(o.id, 'CONFIRMED')}
+                      style={{
+                        padding: '3px 12px', fontSize: 12, fontWeight: 700,
+                        background: '#2e7d32', color: '#fff',
+                        border: 'none', borderRadius: 6, cursor: 'pointer'
+                      }}
+                    >
+                      Принято ✓
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 12, color: STATUS_DOT[o.status] || '#999', fontWeight: 600 }}>
+                      {STATUS_LABEL[o.status] || o.status}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
     </section>

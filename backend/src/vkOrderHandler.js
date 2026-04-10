@@ -563,7 +563,7 @@ export async function processVkStructuredOrderFlow(prisma, ctx) {
           comment: comment || null,
           paymentType: null,
           attributionJson: buildVkOrderAttribution(peerId, vkUserId),
-          status: 'NEW',
+          status: 'CONFIRMED',
           sourceChannel: 'VK',
           linkVkLeadId: null
         });

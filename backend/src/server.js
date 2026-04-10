@@ -1,5 +1,18 @@
 import 'dotenv/config';
 import express from 'express';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+
+const HIDDEN_CLIENTS_FILE = resolve('./hidden-clients.json');
+function loadHiddenClients() {
+  try {
+    if (existsSync(HIDDEN_CLIENTS_FILE)) return new Set(JSON.parse(readFileSync(HIDDEN_CLIENTS_FILE, 'utf-8')));
+  } catch {}
+  return new Set();
+}
+function saveHiddenClients(set) {
+  try { writeFileSync(HIDDEN_CLIENTS_FILE, JSON.stringify([...set])); } catch {}
+}
 import { PrismaClient } from '@prisma/client';
 import { sanitizeAttribution, parseAttributionJson } from './attribution.js';
 import { computeQuoteKopeks } from './pricing.js';
@@ -1144,6 +1157,139 @@ app.get('/api/analytics/daily-ops', requireCrmToken, async (req, res) => {
  * CRM: list menu-day items for a branch+date (includes dishVersionId + food cost snapshot fields).
  * GET /api/menu-day-items?branchId=&date=
  */
+
+/**
+ * База клиентов: агрегация по заказам.
+ * GET /api/client-stats?branchId=
+ */
+app.get('/api/client-stats', requireCrmToken, async (req, res) => {
+  const branchId = req.query.branchId;
+  const where = { status: { not: 'CANCELED' } };
+  if (branchId) where.branchId = String(branchId);
+  try {
+    const hidden = loadHiddenClients();
+    const orders = await prisma.deliveryOrder.findMany({
+      where,
+      select: { customerName: true, customerPhone: true, totalAmount: true, deliveryDate: true, createdAt: true, sourceChannel: true },
+      orderBy: { createdAt: 'asc' }
+    });
+    const byPhone = new Map();
+    for (const o of orders) {
+      const phone = o.customerPhone || 'unknown';
+      if (hidden.has(phone)) continue;
+      if (!byPhone.has(phone)) byPhone.set(phone, { phone, name: o.customerName || '', orders: [], sources: new Set() });
+      byPhone.get(phone).orders.push(o);
+      if (o.sourceChannel) byPhone.get(phone).sources.add(o.sourceChannel);
+    }
+    const today = new Date();
+    const clients = [];
+    for (const [, c] of byPhone) {
+      const sorted = c.orders.slice().sort((a, b) => new Date(b.deliveryDate) - new Date(a.deliveryDate));
+      const firstDate = c.orders[0].deliveryDate;
+      const lastDate = sorted[0].deliveryDate;
+      const daysSinceLast = Math.floor((today - new Date(lastDate)) / 86400000);
+      const total = sorted.reduce((s, o) => s + (o.totalAmount || 0), 0);
+      let avgFreqDays = null;
+      if (sorted.length >= 2) {
+        const dates = sorted.map(o => new Date(o.deliveryDate)).sort((a, b) => a - b);
+        const gaps = [];
+        for (let i = 1; i < dates.length; i++) gaps.push((dates[i] - dates[i - 1]) / 86400000);
+        avgFreqDays = Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length);
+      }
+      const needRemind = avgFreqDays != null && daysSinceLast > avgFreqDays * 1.5;
+      clients.push({
+        name: c.name, phone: c.phone,
+        orderCount: sorted.length, totalAmount: total,
+        avgAmount: Math.round(total / sorted.length),
+        firstDeliveryDate: firstDate,
+        lastDeliveryDate: lastDate, daysSinceLast,
+        avgFreqDays, needRemind,
+        sources: [...c.sources],
+        tag: daysSinceLast > 21 ? 'sleeping' : daysSinceLast <= 7 ? 'active' : 'regular'
+      });
+    }
+    clients.sort((a, b) => b.orderCount - a.orderCount || b.totalAmount - a.totalAmount);
+    res.json(ok({ clients, total: clients.length }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/**
+ * Скрыть клиента из аналитики (soft delete по телефону).
+ * DELETE /api/client-stats/:phone
+ */
+app.delete('/api/client-stats/:phone', requireCrmToken, (req, res) => {
+  try {
+    const phone = decodeURIComponent(req.params.phone);
+    const hidden = loadHiddenClients();
+    hidden.add(phone);
+    saveHiddenClients(hidden);
+    res.json(ok({ hidden: phone }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'Server error', 'INTERNAL'));
+  }
+});
+
+/**
+ * Рассылка сообщений через VK-бот.
+ * POST /api/broadcast/send  { text, recipients: [{vkId} | {phone}], channel: 'crm'|'vk' }
+ */
+app.post('/api/broadcast/send', requireCrmToken, async (req, res) => {
+  const { text, recipients, channel } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json(fail('Укажите текст'));
+  if (!Array.isArray(recipients) || recipients.length === 0) return res.status(400).json(fail('Нет получателей'));
+
+  const vkToken = (process.env.VK_GROUP_ACCESS_TOKEN || '').trim();
+  if (!vkToken) return res.status(500).json(fail('VK_GROUP_ACCESS_TOKEN не задан — отправка невозможна'));
+
+  async function vkSend(peerId) {
+    const params = new URLSearchParams({
+      peer_id: peerId,
+      message: text.trim(),
+      random_id: Math.floor(Math.random() * 1e9),
+      access_token: vkToken,
+      v: '5.131'
+    });
+    const r = await fetch('https://api.vk.com/method/messages.send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+    const j = await r.json().catch(() => null);
+    return !j?.error;
+  }
+
+  // Для CRM-клиентов (по телефону) — найти peerId через VkConversationState
+  async function peerIdByPhone(phone) {
+    const state = await prisma.vkConversationState.findFirst({
+      where: { draftPhone: phone },
+      select: { peerId: true }
+    });
+    return state?.peerId ? Number(state.peerId) : null;
+  }
+
+  let sent = 0, failed = 0;
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+
+  for (const rec of recipients) {
+    try {
+      let peerId = null;
+      if (rec.vkId) {
+        peerId = Number(rec.vkId);
+      } else if (rec.phone) {
+        peerId = await peerIdByPhone(rec.phone);
+      }
+      if (!peerId) { failed++; continue; }
+      const ok2 = await vkSend(peerId);
+      if (ok2) sent++; else failed++;
+    } catch { failed++; }
+    await delay(150); // не превышаем лимит VK API
+  }
+
+  res.json(ok({ sent, failed, total: recipients.length }));
+});
+
 app.get('/api/menu-day-items', requireCrmToken, async (req, res) => {
   const branchId = req.query.branchId;
   const date = req.query.date;

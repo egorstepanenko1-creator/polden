@@ -4,6 +4,7 @@ import {
   fetchDailyOpsAnalytics,
   fetchDeliveryOrders,
   fetchLaunchKpis,
+  fetchMenuDayItems,
   patchDeliveryOrderStatus
 } from './api.js';
 import { localTodayISO, localTomorrowISO } from './dates.js';
@@ -25,6 +26,8 @@ import { ProcurementBoardPage } from './ProcurementBoardPage.jsx';
 import { ContentPipelinePage } from './ContentPipelinePage.jsx';
 import { LaunchDrillPage } from './LaunchDrillPage.jsx';
 import { VkLeadsPage } from './VkLeadsPage.jsx';
+import { ClientsPage } from './ClientsPage.jsx';
+import { BroadcastPage } from './BroadcastPage.jsx';
 import { OrderQuickCreateModal } from './OrderQuickCreateModal.jsx';
 import { DailyOpsPanel } from './DailyOpsPanel.jsx';
 import { B2BWorkspacePage } from './B2BWorkspacePage.jsx';
@@ -38,27 +41,50 @@ function cardStyle() {
   };
 }
 
+const NAV_COLORS = {
+  bg: '#faf8f3',
+  brand: '#4a7c59',
+  tab: '#555',
+  tabActive: '#4a7c59',
+  tabActiveBg: '#e8f0eb',
+  border: '#e0ddd5',
+  groupLabel: '#999'
+};
+
 const crmNavWrap = {
-  fontFamily: 'system-ui, sans-serif',
-  padding: '12px 24px',
-  borderBottom: '1px solid #e0e0e0',
+  fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+  padding: '10px 20px',
+  borderBottom: `2px solid ${NAV_COLORS.border}`,
+  background: NAV_COLORS.bg,
   display: 'flex',
-  gap: 12,
+  gap: 6,
   alignItems: 'center',
   flexWrap: 'wrap'
 };
+
+const NAV_GROUPS = [
+  { label: null, items: [['crm', 'Заказы']] },
+  { label: null, items: [['menuDay', 'Меню']] },
+  { label: null, items: [['vkLeads', 'VK']] },
+  { label: null, items: [['clients', 'Клиенты']] },
+  { label: null, items: [['broadcast', 'Рассылка']] },
+];
 
 /** @param {{ active: string, onNavigate: (v: string) => void }} props */
 function CrmTopNav({ active, onNavigate }) {
   const tab = (id, label) => (
     <button
       type="button"
-      disabled={active === id}
       onClick={() => onNavigate(id)}
       style={{
         padding: '6px 12px',
         cursor: active === id ? 'default' : 'pointer',
-        fontWeight: active === id ? 600 : 400
+        fontWeight: active === id ? 700 : 400,
+        fontSize: 14,
+        border: 'none',
+        borderRadius: 8,
+        background: active === id ? NAV_COLORS.tabActiveBg : 'transparent',
+        color: active === id ? NAV_COLORS.tabActive : NAV_COLORS.tab
       }}
     >
       {label}
@@ -66,24 +92,14 @@ function CrmTopNav({ active, onNavigate }) {
   );
   return (
     <nav style={crmNavWrap} aria-label="Разделы CRM">
-      <strong>{nav.brand}</strong>
-      {tab('crm', nav.ordersKpi)}
-      {tab('contentPipeline', nav.content)}
-      {tab('launchDrill', nav.launchDrill)}
-      {tab('vkLeads', nav.vkLeads)}
-      {tab('b2b', nav.b2b)}
-      {tab('kitchen', nav.kitchen)}
-      {tab('menuDay', nav.menuDay)}
-      {tab('dayEconomics', nav.dayEconomics)}
-      {tab('dayProduction', nav.dayProduction)}
-      {tab('stockDesk', nav.stockDesk)}
-      {tab('inventoryCount', nav.inventoryCount)}
-      {tab('productionStockGap', nav.productionStockGap)}
-      {tab('purchaseNeedSnapshot', nav.purchaseNeedSnapshot)}
-      {tab('purchaseDrafts', nav.purchaseDrafts)}
-      {tab('procurementBoard', nav.procurementBoard)}
-      {tab('suppliers', nav.suppliers)}
-      {tab('productionWriteoff', nav.productionWriteoff)}
+      <strong style={{ color: NAV_COLORS.brand, fontSize: 16, marginRight: 8 }}>Полдень</strong>
+      {NAV_GROUPS.map((g, gi) => (
+        <span key={gi} style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
+          {gi > 0 ? <span style={{ color: NAV_COLORS.border, margin: '0 4px' }}>|</span> : null}
+          {g.label ? <span style={{ fontSize: 11, color: NAV_COLORS.groupLabel, marginRight: 2 }}>{g.label}:</span> : null}
+          {g.items.map(([id, label]) => tab(id, label))}
+        </span>
+      ))}
     </nav>
   );
 }
@@ -97,6 +113,7 @@ export function App() {
   const [selected, setSelected] = useState(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+  const [menuDayItems, setMenuDayItems] = useState([]);
 
   const [kpiDays, setKpiDays] = useState(7);
   const [kpi, setKpi] = useState(null);
@@ -182,6 +199,13 @@ export function App() {
   }, [branchId, date]);
 
   useEffect(() => {
+    if (!branchId || !date) return;
+    fetchMenuDayItems(branchId, date)
+      .then((data) => setMenuDayItems(Array.isArray(data) ? data : []))
+      .catch(() => setMenuDayItems([]));
+  }, [branchId, date]);
+
+  useEffect(() => {
     if (!branchId) return;
     setKpiLoading(true);
     setKpiErr('');
@@ -250,6 +274,30 @@ export function App() {
         <CrmTopNav active="launchDrill" onNavigate={setCrmView} />
         <LaunchDrillPage />
       </div>
+    );
+  }
+
+  if (crmView === 'broadcast') {
+    return (
+      <>
+        {orderModal}
+        <div>
+          <CrmTopNav active="broadcast" onNavigate={setCrmView} />
+          <BroadcastPage branchId={branchId} />
+        </div>
+      </>
+    );
+  }
+
+  if (crmView === 'clients') {
+    return (
+      <>
+        {orderModal}
+        <div>
+          <CrmTopNav active="clients" onNavigate={setCrmView} />
+          <ClientsPage branchId={branchId} />
+        </div>
+      </>
     );
   }
 
@@ -388,75 +436,16 @@ export function App() {
   return (
     <>
       {orderModal}
-      <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 960, margin: '0 auto', padding: '16px 14px 32px' }}>
-      <nav
-        style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}
-        aria-label="Разделы CRM"
-      >
-        <button type="button" disabled style={{ padding: '6px 12px', fontWeight: 600 }}>
-          {nav.ordersKpi}
-        </button>
-        <button type="button" onClick={() => setCrmView('contentPipeline')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.content}
-        </button>
-        <button type="button" onClick={() => setCrmView('launchDrill')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.launchDrill}
-        </button>
-        <button type="button" onClick={() => setCrmView('vkLeads')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.vkLeads}
-        </button>
-        <button type="button" onClick={() => setCrmView('b2b')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.b2b}
-        </button>
-        <button type="button" onClick={() => setCrmView('kitchen')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.kitchen}
-        </button>
-        <button type="button" onClick={() => setCrmView('menuDay')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.menuDay}
-        </button>
-        <button type="button" onClick={() => setCrmView('dayEconomics')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.dayEconomics}
-        </button>
-        <button type="button" onClick={() => setCrmView('dayProduction')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.dayProduction}
-        </button>
-        <button type="button" onClick={() => setCrmView('stockDesk')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.stockDesk}
-        </button>
-        <button type="button" onClick={() => setCrmView('inventoryCount')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.inventoryCount}
-        </button>
-        <button type="button" onClick={() => setCrmView('productionStockGap')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.productionStockGap}
-        </button>
-        <button type="button" onClick={() => setCrmView('purchaseNeedSnapshot')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.purchaseNeedSnapshot}
-        </button>
-        <button type="button" onClick={() => setCrmView('purchaseDrafts')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.purchaseDrafts}
-        </button>
-        <button type="button" onClick={() => setCrmView('procurementBoard')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.procurementBoard}
-        </button>
-        <button type="button" onClick={() => setCrmView('suppliers')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.suppliers}
-        </button>
-        <button type="button" onClick={() => setCrmView('productionWriteoff')} style={{ padding: '6px 12px', cursor: 'pointer' }}>
-          {nav.productionWriteoff}
-        </button>
-      </nav>
-      <h1 style={{ marginTop: 0 }}>{title}</h1>
-      <p style={{ color: '#555', marginTop: 0 }}>
-        Заголовок <code>X-CRM-Token</code> → <code>VITE_CRM_TOKEN</code>
-      </p>
+      <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: '0 auto', padding: '16px 14px 32px' }}>
+      <CrmTopNav active="crm" onNavigate={setCrmView} />
+      <h1 style={{ marginTop: 0, color: '#4a7c59' }}>Заказы</h1>
 
       <DailyOpsPanel
         primary={dailyOps?.primary}
-        compare={dailyOps?.compare}
-        deltas={dailyOps?.deltas}
-        compareDateLabel={dailyOps?.compare?.deliveryDate || null}
         loading={dailyOpsLoading}
         err={dailyOpsErr}
+        onPatchStatus={(id, st) => patchOrderStatus(id, st)}
+        orders={orders}
       />
 
       <OperatorDeliveryWorkspace
@@ -480,6 +469,7 @@ export function App() {
           setOrderPrefill(null);
           setOrderModalOpen(true);
         }}
+        menuItems={menuDayItems}
         onReload={() => loadOrders()}
         loading={loading}
         listErr={err}
@@ -493,11 +483,7 @@ export function App() {
         </div>
       ) : null}
 
-      {import.meta.env.DEV && !loading && orders.length === 0 && !err && !searchResults ? (
-        <p style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
-          Dev: нет заказов на дату — проверьте VITE_API_BASE и VITE_CRM_TOKEN.
-        </p>
-      ) : null}
+      {/* dev hints removed */}
 
       {/* KPI свёрнут по умолчанию — оператор сначала видит заказы */}
       <details style={{ marginBottom: 28, border: '1px solid #e0e0e0', borderRadius: 12, padding: '8px 14px' }}>
@@ -676,10 +662,7 @@ export function App() {
               </div>
             </div>
 
-            <p style={{ fontSize: 12, color: '#888', marginTop: 12 }}>
-              Как считается источник: сначала <code>utm_source</code>, иначе путь и UTM, иначе служебные значения <code>unknown</code> /{' '}
-              <code>direct</code> (логика <code>orderSourceKey</code> на сервере).
-            </p>
+            {/* source logic hidden from operator */}
           </>
         ) : null}
       </section>
