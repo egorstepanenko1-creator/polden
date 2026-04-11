@@ -51,19 +51,14 @@ export function registerVkPublishMenuRoute(app, prisma, requireCrmToken) {
 
       lines.push('');
       lines.push('⏰ Доставка с 11:00 до 13:00');
-      lines.push('');
-
-      // Кнопка заказа — ссылка на сообщения группы
-      const orderLink = groupScreen
-        ? 'https://vk.me/' + groupScreen
-        : 'https://vk.com/im?sel=-' + groupId;
-      lines.push('📩 Заказать → ' + orderLink);
 
       const message = lines.join('\n');
 
       const params = new URLSearchParams({
         owner_id: '-' + groupId,
         message,
+        // Кнопка действия "Написать сообществу" — открывает чат с ботом
+        call_to_action: JSON.stringify({ type: 'open_community_messages' }),
         access_token: token,
         v: '5.131'
       });
