@@ -332,6 +332,8 @@ function BalancesTab({ balances }) {
                 <th style={{ padding: '6px 8px' }}>Ингредиент</th>
                 <th style={{ padding: '6px 8px' }}>Ед.</th>
                 <th style={{ padding: '6px 8px' }}>Остаток</th>
+                <th style={{ padding: '6px 8px' }}>Цена/ед.</th>
+                <th style={{ padding: '6px 8px' }}>Сумма на складе</th>
               </tr>
             </thead>
             <tbody>
@@ -346,6 +348,12 @@ function BalancesTab({ balances }) {
                   }}>
                     {fmtBalance(r.balance)}
                     {r.balance <= 0 ? ' 🔴' : r.balance <= LOW_THRESHOLD ? ' 🟡' : ''}
+                  </td>
+                  <td style={{ padding: '6px 8px', color: '#666', fontSize: 12 }}>
+                    {r.pricePerUnitKopeks ? fmtRub(r.pricePerUnitKopeks) : '—'}
+                  </td>
+                  <td style={{ padding: '6px 8px', fontWeight: r.totalKopeks ? 500 : 400, color: r.totalKopeks ? '#1b5e20' : '#aaa' }}>
+                    {r.totalKopeks ? fmtRub(r.totalKopeks) : '—'}
                   </td>
                 </tr>
               ))}
@@ -395,6 +403,7 @@ function HistoryTab({ movements, ingredients, filterIngredientId, setFilterIngre
                 <th style={{ padding: '6px 6px' }}>Ингредиент</th>
                 <th style={{ padding: '6px 6px' }}>Кол-во</th>
                 <th style={{ padding: '6px 6px' }}>±</th>
+                <th style={{ padding: '6px 6px' }}>Цена/ед.</th>
                 <th style={{ padding: '6px 6px' }}>Примечание</th>
               </tr>
             </thead>
@@ -417,6 +426,9 @@ function HistoryTab({ movements, ingredients, filterIngredientId, setFilterIngre
                   <td style={{ padding: '6px 6px' }}>{m.quantity}</td>
                   <td style={{ padding: '6px 6px', fontWeight: 600, color: m.signedQuantity < 0 ? '#b00020' : '#1b5e20' }}>
                     {m.signedQuantity > 0 ? '+' : ''}{m.signedQuantity}
+                  </td>
+                  <td style={{ padding: '6px 6px', color: '#666' }}>
+                    {m.pricePerUnitKopeks ? fmtRub(m.pricePerUnitKopeks) : '—'}
                   </td>
                   <td style={{ padding: '6px 6px', color: '#555' }}>{m.note || '—'}</td>
                 </tr>

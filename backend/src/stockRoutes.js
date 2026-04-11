@@ -128,6 +128,21 @@ export function createStockRouter(prisma) {
         return res.status(404).json(fail('Branch not found', 'NOT_FOUND'));
       }
       const balances = await buildStockBalancesForBranch(prisma, String(branchId));
+      // Добавляем текущую цену и сумму к каждому остатку
+      const now = new Date();
+      for (const row of balances) {
+        const priceRow = await prisma.ingredientPrice.findFirst({
+          where: {
+            ingredientId: row.ingredientId,
+            unitId: row.unitId,
+            effectiveFrom: { lte: now },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }]
+          },
+          orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }]
+        });
+        row.pricePerUnitKopeks = priceRow ? priceRow.pricePerUnitKopeks : null;
+        row.totalKopeks = priceRow && row.balance > 0 ? Math.round(row.balance * priceRow.pricePerUnitKopeks) : null;
+      }
       res.json(ok({ branchId: String(branchId), balances }));
     } catch (e) {
       res.status(500).json(fail(e.message || 'balances failed', 'INTERNAL'));
@@ -181,7 +196,22 @@ export function createStockRouter(prisma) {
           unit: { select: { code: true } }
         }
       });
-      res.json(ok(rows.map(serializeMovement)));
+      // Attach price at time of movement
+      const serialized = await Promise.all(rows.map(async (row) => {
+        const base = serializeMovement(row);
+        const priceRow = await prisma.ingredientPrice.findFirst({
+          where: {
+            ingredientId: row.ingredientId,
+            unitId: row.unitId,
+            effectiveFrom: { lte: row.occurredAt },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gt: row.occurredAt } }]
+          },
+          orderBy: [{ effectiveFrom: 'desc' }, { id: 'desc' }]
+        });
+        base.pricePerUnitKopeks = priceRow ? priceRow.pricePerUnitKopeks : null;
+        return base;
+      }));
+      res.json(ok(serialized));
     } catch (e) {
       res.status(500).json(fail(e.message || 'list movements failed', 'INTERNAL'));
     }
