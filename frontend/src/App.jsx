@@ -3,8 +3,10 @@ import {
   fetchBranches,
   fetchDailyOpsAnalytics,
   fetchDeliveryOrders,
+  fetchFoodCostKpi,
   fetchLaunchKpis,
   fetchMenuDayItems,
+  fetchStockBalances,
   patchDeliveryOrderStatus
 } from './api.js';
 import { localTodayISO, localTomorrowISO } from './dates.js';
@@ -28,6 +30,7 @@ import { LaunchDrillPage } from './LaunchDrillPage.jsx';
 import { VkLeadsPage } from './VkLeadsPage.jsx';
 import { ClientsPage } from './ClientsPage.jsx';
 import { BroadcastPage } from './BroadcastPage.jsx';
+import { CostPage } from './CostPage.jsx';
 import { OrderQuickCreateModal } from './OrderQuickCreateModal.jsx';
 import { DailyOpsPanel } from './DailyOpsPanel.jsx';
 import { B2BWorkspacePage } from './B2BWorkspacePage.jsx';
@@ -68,6 +71,8 @@ const NAV_GROUPS = [
   { label: null, items: [['vkLeads', 'VK']] },
   { label: null, items: [['clients', 'Клиенты']] },
   { label: null, items: [['broadcast', 'Рассылка']] },
+  { label: null, items: [['cost', 'Себестоимость']] },
+  { label: null, items: [['stockDesk', 'Склад']] },
 ];
 
 /** @param {{ active: string, onNavigate: (v: string) => void }} props */
@@ -119,6 +124,9 @@ export function App() {
   const [kpi, setKpi] = useState(null);
   const [kpiLoading, setKpiLoading] = useState(false);
   const [kpiErr, setKpiErr] = useState('');
+  const [fcKpi, setFcKpi] = useState(null);
+  const [stockAlerts, setStockAlerts] = useState([]);
+  const [alertDismissed, setAlertDismissed] = useState(false);
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [orderPrefill, setOrderPrefill] = useState(null);
@@ -213,6 +221,16 @@ export function App() {
       .then(setKpi)
       .catch((e) => setKpiErr(e.message || String(e)))
       .finally(() => setKpiLoading(false));
+    fetchFoodCostKpi(branchId, kpiDays).then(setFcKpi).catch(() => {});
+    // Stock alerts — check on every branchId change
+    setAlertDismissed(false);
+    fetchStockBalances(branchId)
+      .then(res => {
+        const LOW = 1;
+        const alerts = (res.balances || []).filter(b => b.balance <= LOW);
+        setStockAlerts(alerts);
+      })
+      .catch(() => {});
   }, [branchId, kpiDays]);
 
   const title = useMemo(() => nav.brand, []);
@@ -284,6 +302,18 @@ export function App() {
         <div>
           <CrmTopNav active="broadcast" onNavigate={setCrmView} />
           <BroadcastPage branchId={branchId} />
+        </div>
+      </>
+    );
+  }
+
+  if (crmView === 'cost') {
+    return (
+      <>
+        {orderModal}
+        <div>
+          <CrmTopNav active="cost" onNavigate={setCrmView} />
+          <CostPage />
         </div>
       </>
     );
@@ -438,6 +468,41 @@ export function App() {
       {orderModal}
       <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: '0 auto', padding: '16px 14px 32px' }}>
       <CrmTopNav active="crm" onNavigate={setCrmView} />
+
+      {stockAlerts.length > 0 && !alertDismissed && (
+        <div style={{
+          background: stockAlerts.some(b => b.balance <= 0) ? '#ffebee' : '#fff9c4',
+          border: `1px solid ${stockAlerts.some(b => b.balance <= 0) ? '#ef9a9a' : '#ffe082'}`,
+          borderRadius: 8, padding: '10px 14px', marginBottom: 12,
+          display: 'flex', gap: 10, alignItems: 'flex-start'
+        }}>
+          <span style={{ fontSize: 18 }}>{stockAlerts.some(b => b.balance <= 0) ? '🔴' : '🟡'}</span>
+          <div style={{ flex: 1, fontSize: 13 }}>
+            <strong>Внимание: низкий остаток на складе</strong>
+            <div style={{ marginTop: 4, color: '#555' }}>
+              {stockAlerts.map(b => (
+                <span key={`${b.ingredientId}-${b.unitId}`}
+                  style={{ display: 'inline-block', margin: '2px 4px 2px 0', padding: '2px 8px',
+                    borderRadius: 10, fontSize: 12,
+                    background: b.balance <= 0 ? '#ffcdd2' : '#fff9c4',
+                    color: b.balance <= 0 ? '#c62828' : '#e65100', fontWeight: 600 }}>
+                  {b.ingredientName}: {Number(b.balance).toFixed(2)} {b.unitCode}
+                </span>
+              ))}
+            </div>
+            <button type="button" onClick={() => setCrmView('stockDesk')}
+              style={{ marginTop: 6, padding: '4px 12px', fontSize: 12, borderRadius: 6,
+                background: '#1565c0', color: '#fff', border: 'none', cursor: 'pointer' }}>
+              Открыть Склад
+            </button>
+          </div>
+          <button type="button" onClick={() => setAlertDismissed(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#888', padding: 0 }}>
+            ✕
+          </button>
+        </div>
+      )}
+
       <h1 style={{ marginTop: 0, color: '#4a7c59' }}>Заказы</h1>
 
       <DailyOpsPanel
@@ -544,6 +609,37 @@ export function App() {
                 <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{rubKopeks(kpi.totals.aovKopeks)}</div>
                 <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>выручка / заказы</div>
               </div>
+              {fcKpi && (
+                <>
+                  <div style={cardStyle()}>
+                    <div style={{ fontSize: 12, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Расходы на сырьё</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: '#c62828' }}>
+                      {rubKopeks(fcKpi.totals.foodCostKopeks)}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>из меню (снапшот)</div>
+                  </div>
+                  <div style={cardStyle()}>
+                    <div style={{ fontSize: 12, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Валовая прибыль</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: '#1b5e20' }}>
+                      {rubKopeks(fcKpi.totals.grossProfitKopeks)}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>цена меню − сырьё</div>
+                  </div>
+                  <div style={cardStyle()}>
+                    <div style={{ fontSize: 12, color: '#666', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Food Cost %</div>
+                    <div style={{
+                      fontSize: 26, fontWeight: 700, marginTop: 4,
+                      color: fcKpi.totals.foodCostPct == null ? '#888'
+                        : fcKpi.totals.foodCostPct > 50 ? '#b00020'
+                        : fcKpi.totals.foodCostPct > 35 ? '#e65100'
+                        : '#2e7d32'
+                    }}>
+                      {fcKpi.totals.foodCostPct != null ? `${fcKpi.totals.foodCostPct}%` : '—'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>цель: &lt;35%</div>
+                  </div>
+                </>
+              )}
             </div>
 
             {kpi.byDeliveryDate?.length > 0 ? (

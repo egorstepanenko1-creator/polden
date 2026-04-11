@@ -92,6 +92,7 @@ model Dish {
   name      String
   active    Boolean @default(true)
   category  String?
+  salePrice Int?
   versions  DishVersion[]
 }
 

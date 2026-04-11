@@ -4,8 +4,36 @@ import {
   fetchKitchenDishes,
   fetchKitchenDishVersions,
   fetchMenuDayItems,
-  upsertMenuDayItem
+  upsertMenuDayItem,
+  fetchOrderWindow,
+  openOrderWindow,
+  closeOrderWindow
 } from './api.js';
+
+const TOKEN = import.meta.env.VITE_CRM_TOKEN || 'dev';
+const BASE = import.meta.env.VITE_API_BASE || '';
+
+// Обновляет salePrice блюда — цена из меню становится "эталонной" везде
+async function updateDishSalePrice(dishId, priceKopeks) {
+  try {
+    await fetch(`${BASE}/api/kitchen/dishes/${dishId}`, {
+      method: 'PATCH',
+      headers: { 'X-CRM-Token': TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salePrice: priceKopeks })
+    });
+  } catch {}
+}
+
+async function publishMenuToVk(branchId, date) {
+  const res = await fetch('/api/vk/publish-menu', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CRM-Token': TOKEN },
+    body: JSON.stringify({ branchId, date })
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
+  return json.data;
+}
 import { localTomorrowISO } from './dates.js';
 
 /* ─── helpers ─── */
@@ -29,6 +57,10 @@ const SLOT_LABELS = [
   'Салат 1', 'Салат 2',
   'Допы 1', 'Допы 2', 'Допы 3'
 ];
+
+// Категория для каждого слота — null = «Допы» (Напиток/Каша/Выпечка)
+const SLOT_CATEGORIES = ['Суп','Суп','Горячее','Горячее','Салат','Салат',null,null,null];
+const DOPY_CATEGORIES = ['Напиток','Каша','Выпечка'];
 
 const COLORS = {
   bg: '#faf8f3',
@@ -193,6 +225,8 @@ function DishPickerModal({ open, slotIndex, currentName, currentPrice, catalogDi
   const [manualName, setManualName] = useState(currentName || '');
   const [manualPrice, setManualPrice] = useState(currentPrice ? String(Math.round(currentPrice / 100)) : '');
   const [mode, setMode] = useState('catalog'); // 'catalog' | 'manual'
+  const [pendingDish, setPendingDish] = useState(null); // { name, salePrice, versionId }
+  const [pendingPrice, setPendingPrice] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -200,21 +234,47 @@ function DishPickerModal({ open, slotIndex, currentName, currentPrice, catalogDi
       setManualName(currentName || '');
       setManualPrice(currentPrice ? String(Math.round(currentPrice / 100)) : '');
       setMode(catalogDishes.length > 0 ? 'catalog' : 'manual');
+      setPendingDish(null);
+      setPendingPrice('');
     }
   }, [open, currentName, currentPrice, catalogDishes.length]);
 
   if (!open) return null;
 
+  // Фильтрация по категории слота
+  const slotCat = SLOT_CATEGORIES[slotIndex]; // null = Допы
+  const categoryFiltered = catalogDishes.filter(d => {
+    if (!d.category) return false; // блюда без категории не показываем
+    if (slotCat === null) return DOPY_CATEGORIES.includes(d.category);
+    return d.category === slotCat;
+  });
+
   const q = search.toLowerCase().trim();
-  const filtered = catalogDishes.filter(d =>
+  const filtered = categoryFiltered.filter(d =>
     !q || d.name.toLowerCase().includes(q)
   );
+
+  const categoryLabel = slotCat || 'Допы';
+
+  function handleSelectFromCatalog(d) {
+    setPendingDish(d);
+    setPendingPrice(d.salePrice ? String(Math.round(d.salePrice / 100)) : '');
+  }
+
+  function handleConfirmPending() {
+    if (!pendingDish) return;
+    const priceK = kopeksFromRubles(pendingPrice) ?? 0;
+    // Если цена изменилась — сохраняем как новую эталонную для блюда
+    if (priceK > 0 && priceK !== pendingDish.salePrice) {
+      updateDishSalePrice(pendingDish.id, priceK);
+    }
+    onSave({ name: pendingDish.name, priceKopeks: priceK, dishVersionId: pendingDish.versionId || null });
+  }
 
   function handleManualSave() {
     const name = manualName.trim();
     if (!name) return;
-    const priceK = kopeksFromRubles(manualPrice);
-    if (priceK == null) return;
+    const priceK = kopeksFromRubles(manualPrice) ?? 0;
     onSave({ name, priceKopeks: priceK, dishVersionId: null });
   }
 
@@ -223,7 +283,10 @@ function DishPickerModal({ open, slotIndex, currentName, currentPrice, catalogDi
       <div style={modalStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 18, color: COLORS.text }}>
-            {SLOT_LABELS[slotIndex]} — позиция {slotIndex + 1}
+            {SLOT_LABELS[slotIndex]}
+            <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 400, color: COLORS.textMuted, background: COLORS.accentLight, padding: '2px 8px', borderRadius: 6 }}>
+              {categoryLabel}
+            </span>
           </h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: COLORS.textMuted }}>✕</button>
         </div>
@@ -252,44 +315,81 @@ function DishPickerModal({ open, slotIndex, currentName, currentPrice, catalogDi
 
         {mode === 'catalog' ? (
           <>
-            <input
-              type="text"
-              placeholder="Поиск блюда..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={searchInputStyle}
-              autoFocus
-            />
-            <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-              {filtered.length === 0 ? (
-                <p style={{ color: COLORS.textMuted, textAlign: 'center', padding: 20 }}>
-                  {catalogDishes.length === 0 ? 'Каталог пуст — добавьте блюда вручную' : 'Ничего не найдено'}
+            {pendingDish ? (
+              /* Шаг подтверждения: выбрано блюдо, ставим цену */
+              <div style={{ padding: 16, background: COLORS.accentLight, borderRadius: 10, border: `1px solid ${COLORS.accent}` }}>
+                <p style={{ margin: '0 0 10px', fontWeight: 600, fontSize: 15, color: COLORS.accentDark }}>
+                  ✓ {pendingDish.name}
                 </p>
-              ) : (
-                filtered.map(d => (
-                  <div
-                    key={d.id}
-                    onClick={() => onSave({ name: d.name, priceKopeks: d.defaultPrice || 0, dishVersionId: d.versionId || null })}
-                    style={{
-                      padding: '10px 12px',
-                      borderRadius: 10,
-                      cursor: 'pointer',
-                      marginBottom: 4,
-                      border: `1px solid ${COLORS.border}`,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      transition: 'background 0.1s'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = COLORS.accentLight}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <span style={{ fontWeight: 500 }}>{d.name}</span>
-                    {d.defaultPrice ? <span style={{ color: COLORS.accent, fontWeight: 600 }}>{rubFromKopeks(d.defaultPrice)}</span> : null}
-                  </div>
-                ))
-              )}
-            </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 14, color: COLORS.text, whiteSpace: 'nowrap' }}>Цена продажи:</label>
+                  <input
+                    type="number"
+                    value={pendingPrice}
+                    onChange={e => setPendingPrice(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    style={{ ...inputStyle, width: 90, margin: 0 }}
+                    autoFocus
+                    onKeyDown={e => e.key === 'Enter' && handleConfirmPending()}
+                  />
+                  <span style={{ fontSize: 14, color: COLORS.textMuted }}>₽</span>
+                  <button onClick={handleConfirmPending} style={btnPrimary}>Добавить</button>
+                  <button onClick={() => { setPendingDish(null); setPendingPrice(''); }}
+                    style={{ ...btnSecondary, marginLeft: 4 }}>← Назад</button>
+                </div>
+                {!pendingDish.salePrice && (
+                  <p style={{ margin: '8px 0 0', fontSize: 12, color: COLORS.textMuted }}>
+                    💡 Цену можно задать заранее в разделе «Себестоимость»
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  placeholder={`Поиск в разделе «${categoryLabel}»...`}
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={searchInputStyle}
+                  autoFocus
+                />
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {filtered.length === 0 ? (
+                    <p style={{ color: COLORS.textMuted, textAlign: 'center', padding: 20 }}>
+                      {categoryFiltered.length === 0
+                        ? `Нет блюд в категории «${categoryLabel}» — добавьте вручную`
+                        : 'Ничего не найдено'}
+                    </p>
+                  ) : (
+                    filtered.map(d => (
+                      <div
+                        key={d.id}
+                        onClick={() => handleSelectFromCatalog(d)}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          cursor: 'pointer',
+                          marginBottom: 4,
+                          border: `1px solid ${COLORS.border}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          transition: 'background 0.1s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = COLORS.accentLight}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <span style={{ fontWeight: 500 }}>{d.name}</span>
+                        {d.salePrice
+                          ? <span style={{ color: COLORS.accent, fontWeight: 600, fontSize: 13 }}>{rubFromKopeks(d.salePrice)}</span>
+                          : <span style={{ color: '#bbb', fontSize: 12 }}>цена не задана</span>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
           </>
         ) : (
           <div>
@@ -345,8 +445,14 @@ export function MenuDayEditorPage() {
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [vkPostUrl, setVkPostUrl] = useState('');
+
+  // --- Order Window state ---
+  const [orderWindow, setOrderWindow] = useState(null); // {exists, accepting, closesAt, ...}
+  const [windowBusy, setWindowBusy] = useState(false);
 
   // Load branches on mount
   useEffect(() => {
@@ -362,7 +468,12 @@ export function MenuDayEditorPage() {
   useEffect(() => {
     (async () => {
       try {
-        const dishes = await fetchKitchenDishes();
+        const allDishes = await fetchKitchenDishes();
+        const dishes = allDishes.filter(d =>
+          d.active !== false &&
+          !d.name.includes('demo') && !d.name.includes('Demo') &&
+          !d.name.includes('mndf9') && !d.name.includes('заглушка')
+        );
         const catalog = [];
         for (const d of dishes) {
           const vers = await fetchKitchenDishVersions(d.id);
@@ -370,8 +481,10 @@ export function MenuDayEditorPage() {
           catalog.push({
             id: d.id,
             name: d.name,
+            category: d.category || null,
+            active: d.active,
+            salePrice: d.salePrice || null,
             versionId: pub?.id || null,
-            defaultPrice: 0 // will be set from menu if available
           });
         }
         catalog.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
@@ -381,6 +494,36 @@ export function MenuDayEditorPage() {
       }
     })();
   }, []);
+
+  // Load order window status
+  const loadOrderWindow = useCallback(() => {
+    if (!branchId || !menuDate) return;
+    fetchOrderWindow(branchId, menuDate)
+      .then(data => setOrderWindow(data))
+      .catch(() => setOrderWindow(null));
+  }, [branchId, menuDate]);
+
+  useEffect(() => {
+    if (branchId && menuDate) loadOrderWindow();
+  }, [branchId, menuDate, loadOrderWindow]);
+
+  async function handleToggleOrderWindow() {
+    if (!branchId || !menuDate) return;
+    setWindowBusy(true);
+    setErr('');
+    try {
+      if (orderWindow?.accepting) {
+        await closeOrderWindow(branchId, menuDate);
+      } else {
+        await openOrderWindow(branchId, menuDate);
+      }
+      loadOrderWindow();
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setWindowBusy(false);
+    }
+  }
 
   // Load menu when branch or date changes
   const loadMenu = useCallback(() => {
@@ -550,12 +693,53 @@ export function MenuDayEditorPage() {
             })}
           </div>
 
+          {/* Order Window Status */}
+          <div style={{
+            marginTop: 20,
+            padding: '12px 18px',
+            background: orderWindow?.accepting ? '#e8f5e9' : '#fff3e0',
+            borderRadius: 14,
+            border: `2px solid ${orderWindow?.accepting ? COLORS.success : COLORS.warning}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: orderWindow?.accepting ? COLORS.success : COLORS.warning }}>
+              {orderWindow?.accepting
+                ? `Приём заказов открыт (до ${orderWindow.closesAt ? new Date(orderWindow.closesAt).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }) : '06:00'})`
+                : 'Приём заказов закрыт'}
+            </div>
+            <button
+              onClick={handleToggleOrderWindow}
+              disabled={windowBusy || filledCount === 0}
+              style={{
+                background: orderWindow?.accepting ? COLORS.warning : COLORS.success,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 10,
+                padding: '10px 20px',
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: windowBusy || filledCount === 0 ? 'default' : 'pointer',
+                opacity: windowBusy || filledCount === 0 ? 0.5 : 1
+              }}
+            >
+              {windowBusy
+                ? '...'
+                : orderWindow?.accepting
+                  ? 'Закрыть приём'
+                  : 'Открыть приём заказов'}
+            </button>
+          </div>
+
           {/* Summary & Save */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginTop: 20,
+            marginTop: 14,
             padding: '14px 18px',
             background: COLORS.card,
             borderRadius: 14,
@@ -571,16 +755,51 @@ export function MenuDayEditorPage() {
                 </span>
               ) : null}
             </div>
-            <button
-              onClick={saveAll}
-              disabled={saving || filledCount === 0}
-              style={{
-                ...btnPrimary,
-                opacity: saving || filledCount === 0 ? 0.5 : 1
-              }}
-            >
-              {saving ? 'Сохранение...' : 'Сохранить меню'}
-            </button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={saveAll}
+                disabled={saving || filledCount === 0}
+                style={{ ...btnPrimary, opacity: saving || filledCount === 0 ? 0.5 : 1 }}
+              >
+                {saving ? 'Сохранение...' : 'Сохранить меню'}
+              </button>
+              <button
+                onClick={async () => {
+                  setPublishing(true);
+                  setErr('');
+                  setVkPostUrl('');
+                  try {
+                    const r = await publishMenuToVk(branchId, menuDate);
+                    setVkPostUrl(r.postUrl);
+                    setMsg('Меню опубликовано в VK!');
+                  } catch (e) {
+                    setErr('VK: ' + (e.message || String(e)));
+                  } finally {
+                    setPublishing(false);
+                  }
+                }}
+                disabled={publishing || filledCount === 0 || !branchId}
+                style={{
+                  background: publishing || filledCount === 0 ? '#999' : '#4c75a3',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '10px 20px',
+                  fontSize: 15,
+                  fontWeight: 600,
+                  cursor: publishing || filledCount === 0 ? 'default' : 'pointer',
+                  opacity: publishing || filledCount === 0 ? 0.6 : 1
+                }}
+              >
+                {publishing ? 'Публикация...' : 'Опубликовать в VK'}
+              </button>
+            </div>
+            {vkPostUrl && (
+              <a href={vkPostUrl} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 13, color: '#4c75a3', textDecoration: 'none' }}>
+                Пост опубликован, посмотреть
+              </a>
+            )}
           </div>
         </>
       )}

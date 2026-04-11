@@ -271,5 +271,118 @@ export function createStockRouter(prisma) {
     }
   });
 
+
+  // POST /api/stock/receipt — поставка: записывает RECEIPT-движения + пересчитывает AVCO цену ингредиента
+  // Body: { branchId, items: [{ingredientId, unitId, quantity, pricePerUnitKopeks}], occurredAt?, note? }
+  r.post('/receipt', async (req, res) => {
+    const body = req.body || {};
+    const branchId = body.branchId != null ? String(body.branchId).trim() : '';
+    if (!branchId) return res.status(400).json(fail('branchId required'));
+
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (items.length === 0) return res.status(400).json(fail('items[] required'));
+
+    let occurredAt = new Date();
+    if (body.occurredAt) {
+      occurredAt = new Date(String(body.occurredAt));
+      if (Number.isNaN(occurredAt.getTime())) return res.status(400).json(fail('occurredAt invalid'));
+    }
+    const note = body.note != null ? String(body.note).slice(0, 2000) || null : null;
+
+    try {
+      const br = await prisma.branch.findUnique({ where: { id: branchId } });
+      if (!br) return res.status(404).json(fail('Branch not found', 'NOT_FOUND'));
+
+      // Validate all items first
+      for (const item of items) {
+        const ingId = item.ingredientId != null ? String(item.ingredientId).trim() : '';
+        const unitId = item.unitId != null ? String(item.unitId).trim() : '';
+        const qty = Number(item.quantity);
+        const price = Number(item.pricePerUnitKopeks);
+        if (!ingId || !unitId) return res.status(400).json(fail('each item needs ingredientId, unitId'));
+        if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json(fail('quantity must be > 0'));
+        if (!Number.isFinite(price) || price < 0) return res.status(400).json(fail('pricePerUnitKopeks must be >= 0'));
+        const ing = await prisma.ingredient.findUnique({ where: { id: ingId } });
+        if (!ing) return res.status(404).json(fail('Ingredient ' + ingId + ' not found', 'NOT_FOUND'));
+        if (unitId !== ing.defaultUnitId) return res.status(400).json(fail('unitId must equal ingredient.defaultUnitId for ' + ingId));
+      }
+
+      const results = [];
+      for (const item of items) {
+        const ingId = String(item.ingredientId).trim();
+        const unitId = String(item.unitId).trim();
+        const recvQty = Number(item.quantity);
+        const recvPrice = Math.floor(Number(item.pricePerUnitKopeks));
+
+        // 1. Get current stock balance
+        const allMovements = await prisma.stockMovement.findMany({
+          where: { branchId, ingredientId: ingId }
+        });
+        let curBalance = 0;
+        for (const m of allMovements) {
+          curBalance += movementSignedQuantity(m.movementType, Number(m.quantity));
+        }
+
+        // 2. Get current price (most recent IngredientPrice with effectiveTo = null)
+        const curPriceRow = await prisma.ingredientPrice.findFirst({
+          where: { ingredientId: ingId, unitId, effectiveTo: null },
+          orderBy: { effectiveFrom: 'desc' }
+        });
+        const curPrice = curPriceRow ? curPriceRow.pricePerUnitKopeks : 0;
+
+        // 3. AVCO = (curBalance * curPrice + recvQty * recvPrice) / (curBalance + recvQty)
+        const avcoBalance = Math.max(curBalance, 0);
+        const newAvco = avcoBalance + recvQty > 0
+          ? Math.round((avcoBalance * curPrice + recvQty * recvPrice) / (avcoBalance + recvQty))
+          : recvPrice;
+
+        // 4. Create RECEIPT StockMovement
+        const movement = await prisma.stockMovement.create({
+          data: {
+            branchId,
+            ingredientId: ingId,
+            unitId,
+            movementType: 'RECEIPT',
+            quantity: new Prisma.Decimal(String(recvQty)),
+            occurredAt,
+            note
+          },
+          include: { ingredient: { select: { name: true } }, unit: { select: { code: true } } }
+        });
+
+        // 5. Update IngredientPrice: close current open row, create new with AVCO
+        if (curPriceRow) {
+          await prisma.ingredientPrice.update({
+            where: { id: curPriceRow.id },
+            data: { effectiveTo: occurredAt }
+          });
+        }
+        await prisma.ingredientPrice.create({
+          data: {
+            ingredientId: ingId,
+            unitId,
+            pricePerUnitKopeks: newAvco,
+            effectiveFrom: occurredAt,
+            effectiveTo: null
+          }
+        });
+
+        results.push({
+          ingredientId: ingId,
+          ingredientName: movement.ingredient.name,
+          quantity: recvQty,
+          unitCode: movement.unit.code,
+          priceKopeks: recvPrice,
+          newAvcoKopeks: newAvco,
+          movementId: movement.id
+        });
+      }
+
+      res.status(201).json(ok({ branchId, occurredAt: occurredAt.toISOString(), items: results }));
+    } catch (e) {
+      res.status(500).json(fail(e.message || 'receipt failed', 'INTERNAL'));
+    }
+  });
+
   return r;
 }

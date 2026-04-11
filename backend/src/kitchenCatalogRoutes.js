@@ -86,6 +86,7 @@ export function createKitchenCatalogRouter(prisma) {
   r.get('/ingredients', async (_req, res) => {
     try {
       const rows = await prisma.ingredient.findMany({
+        where: { active: true },
         orderBy: { name: 'asc' },
         include: { defaultUnit: true }
       });
@@ -329,6 +330,7 @@ export function createKitchenCatalogRouter(prisma) {
             name: d.name,
             active: d.active,
             category: d.category,
+            salePrice: d.salePrice,
             versionCount: d._count.versions
           }))
         )
@@ -346,11 +348,62 @@ export function createKitchenCatalogRouter(prisma) {
     }
     const category = body.category != null ? String(body.category).trim().slice(0, 100) || null : null;
     const active = body.active === false ? false : true;
+    const salePrice = body.salePrice != null && Number.isFinite(Number(body.salePrice)) ? Math.floor(Number(body.salePrice)) : null;
     try {
-      const row = await prisma.dish.create({ data: { name, category, active } });
-      res.status(201).json(ok({ id: row.id, name: row.name, active: row.active, category: row.category }));
+      const row = await prisma.dish.create({ data: { name, category, active, ...(salePrice != null ? { salePrice } : {}) } });
+      res.status(201).json(ok({ id: row.id, name: row.name, active: row.active, category: row.category, salePrice: row.salePrice }));
     } catch (e) {
       res.status(500).json(fail(e.message || 'create dish failed', 'INTERNAL'));
+    }
+  });
+
+  r.patch('/dishes/:dishId', async (req, res) => {
+    const { dishId } = req.params;
+    const body = req.body || {};
+    const data = {};
+    if (body.name != null) {
+      const name = String(body.name).trim();
+      if (!name || name.length > 200) {
+        return res.status(400).json(fail('name invalid', 'VALIDATION'));
+      }
+      data.name = name;
+    }
+    if (body.category !== undefined) {
+      data.category = body.category == null || body.category === '' ? null : String(body.category).trim().slice(0, 100);
+    }
+    if (body.active !== undefined) {
+      data.active = Boolean(body.active);
+    }
+    if (body.salePrice !== undefined) {
+      data.salePrice = body.salePrice == null ? null : (Number.isFinite(Number(body.salePrice)) ? Math.floor(Number(body.salePrice)) : undefined);
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json(fail('no fields to update', 'VALIDATION'));
+    }
+    try {
+      const row = await prisma.dish.update({
+        where: { id: String(dishId) },
+        data
+      });
+      res.json(ok({ id: row.id, name: row.name, active: row.active, category: row.category, salePrice: row.salePrice }));
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        return res.status(404).json(fail('Dish not found', 'NOT_FOUND'));
+      }
+      res.status(500).json(fail(e.message || 'update dish failed', 'INTERNAL'));
+    }
+  });
+
+  r.delete('/dishes/:dishId', async (req, res) => {
+    const { dishId } = req.params;
+    try {
+      const dish = await prisma.dish.findUnique({ where: { id: String(dishId) } });
+      if (!dish) return res.status(404).json(fail('Dish not found', 'NOT_FOUND'));
+      // Soft delete — деактивируем
+      await prisma.dish.update({ where: { id: String(dishId) }, data: { active: false } });
+      res.json(ok({ id: String(dishId), active: false }));
+    } catch (e) {
+      res.status(500).json(fail(e.message || 'delete dish failed', 'INTERNAL'));
     }
   });
 

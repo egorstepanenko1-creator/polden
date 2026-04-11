@@ -239,6 +239,10 @@ export async function createStockMovement(body) {
   return crmFetch('/api/stock/movements', { method: 'POST', body });
 }
 
+export async function createStockReceipt(body) {
+  return crmFetch('/api/stock/receipt', { method: 'POST', body });
+}
+
 /** @returns {Promise<{ branchId: string, rows: Array<Record<string, unknown>> }>} */
 export async function fetchInventoryCountSheet(branchId) {
   const q = new URLSearchParams({ branchId });
@@ -365,6 +369,17 @@ export async function postConvertCorporateLead(leadId, body = {}) {
 }
 
 /** @param {string} branchId @param {number} days 1..90 */
+export async function fetchFoodCostKpi(branchId, days = 7) {
+  const q = new URLSearchParams({ branchId, days: String(days) });
+  const res = await fetch(apiUrl(`/api/dashboard/food-cost-kpi?${q}`), {
+    headers: { 'X-CRM-Token': TOKEN, Accept: 'application/json' }
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json?.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
+  return json.data;
+}
+
+/** @param {string} branchId @param {number} days 1..90 */
 export async function fetchLaunchKpis(branchId, days = 7) {
   const q = new URLSearchParams({ branchId, days: String(days) });
   const res = await fetch(apiUrl(`/api/dashboard/launch-kpis?${q}`), {
@@ -486,4 +501,16 @@ export async function postVkLeadConvert(id) {
 /** @returns {Promise<Record<string, unknown>>} расширенный объект готовности VK (см. GET /api/vk-bot/readiness) */
 export async function fetchVkBotReadiness() {
   return crmFetch('/api/vk-bot/readiness');
+}
+
+export async function fetchOrderWindow(branchId, date) {
+  return crmFetch();
+}
+
+export async function openOrderWindow(branchId, date) {
+  return crmFetch("/api/order-window/open", { method: "POST", body: JSON.stringify({ branchId, date }) });
+}
+
+export async function closeOrderWindow(branchId, date) {
+  return crmFetch("/api/order-window/close", { method: "POST", body: JSON.stringify({ branchId, date }) });
 }

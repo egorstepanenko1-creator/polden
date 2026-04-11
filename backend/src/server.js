@@ -369,6 +369,13 @@ app.post(
         sourceChannel: 'SITE',
         linkVkLeadId: null
       });
+      // Auto write-off при создании заказа
+      try {
+        const wPositions = order.items.map(item => ({ position: item.position, writeoffQty: item.qty }));
+        await runProductionWriteoff(prisma, order.branchId, order.deliveryDate, wPositions, {
+          confirm: true, note: 'Авто-списание заказ ' + order.id
+        });
+      } catch (we) { console.error('Auto-writeoff error:', we.message); }
       res.json(ok(toPublicOrder(order)));
     } catch (e) {
       const code = e.code || 'CREATE_ERROR';
@@ -543,6 +550,13 @@ app.post('/api/delivery-orders/manual', requireCrmToken, async (req, res) => {
       where: { id: order.id },
       include: { branch: true, items: true, leadConversion: { select: { id: true } } }
     });
+    // Auto write-off при создании заказа
+    try {
+      const wPositions = order.items.map(item => ({ position: item.position, writeoffQty: item.qty }));
+      await runProductionWriteoff(prisma, order.branchId, order.deliveryDate, wPositions, {
+        confirm: true, note: 'Авто-списание заказ ' + order.id
+      });
+    } catch (we) { console.error('Auto-writeoff error:', we.message); }
     res.json(ok(toProtectedOrder(full)));
   } catch (e) {
     const code = e.code || 'CREATE_ERROR';
@@ -1115,6 +1129,78 @@ app.get('/api/dashboard/launch-kpis', requireCrmToken, async (req, res) => {
 });
 
 /**
+ * Food cost KPI из MenuDayItem.foodCostKopeksSnapshot + price за период.
+ * GET /api/dashboard/food-cost-kpi?branchId=&days=7
+ */
+app.get('/api/dashboard/food-cost-kpi', requireCrmToken, async (req, res) => {
+  const branchId = req.query.branchId;
+  if (!branchId) return res.status(400).json(fail('branchId required'));
+  let days = Number(req.query.days ?? 7);
+  if (!Number.isFinite(days) || days < 1) days = 7;
+  if (days > 90) days = 90;
+
+  const dates = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+
+  try {
+    const items = await prisma.menuDayItem.findMany({
+      where: { branchId: String(branchId), date: { in: dates } },
+      select: { date: true, price: true, foodCostKopeksSnapshot: true }
+    });
+
+    let totalRevenueKopeks = 0;
+    let totalFoodCostKopeks = 0;
+    let itemsWithCost = 0;
+    const byDate = {};
+
+    for (const item of items) {
+      if (!byDate[item.date]) byDate[item.date] = { revenueKopeks: 0, foodCostKopeks: 0 };
+      byDate[item.date].revenueKopeks += item.price || 0;
+      totalRevenueKopeks += item.price || 0;
+      if (item.foodCostKopeksSnapshot != null) {
+        byDate[item.date].foodCostKopeks += item.foodCostKopeksSnapshot;
+        totalFoodCostKopeks += item.foodCostKopeksSnapshot;
+        itemsWithCost++;
+      }
+    }
+
+    const grossProfitKopeks = totalRevenueKopeks - totalFoodCostKopeks;
+    const foodCostPct = totalRevenueKopeks > 0
+      ? Math.round(totalFoodCostKopeks / totalRevenueKopeks * 1000) / 10
+      : null;
+
+    res.json(ok({
+      branchId: String(branchId),
+      days,
+      totals: {
+        menuRevenueKopeks: totalRevenueKopeks,
+        foodCostKopeks: totalFoodCostKopeks,
+        grossProfitKopeks,
+        foodCostPct,
+        itemsWithCost,
+        totalItems: items.length
+      },
+      byDate: Object.entries(byDate)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([date, v]) => ({
+          date,
+          revenueKopeks: v.revenueKopeks,
+          foodCostKopeks: v.foodCostKopeks,
+          foodCostPct: v.revenueKopeks > 0
+            ? Math.round(v.foodCostKopeks / v.revenueKopeks * 1000) / 10
+            : null
+        }))
+    }));
+  } catch (e) {
+    res.status(500).json(fail(e.message || 'food-cost-kpi failed', 'INTERNAL'));
+  }
+});
+
+/**
  * Операционная аналитика на дату доставки (DeliveryOrder).
  * GET /api/analytics/daily-ops?branchId=&date=&compareDate=
  * date по умолчанию — календарный «сегодня» на сервере (локальное время).
@@ -1498,7 +1584,14 @@ app.put('/api/menu-day-items/upsert', requireCrmToken, async (req, res) => {
   let econ;
   try {
     if (Object.prototype.hasOwnProperty.call(body, 'dishVersionId')) {
-      econ = await resolveMenuDayEconomicsFields(prisma, dishVersionId);
+      try {
+        econ = await resolveMenuDayEconomicsFields(prisma, dishVersionId);
+      } catch (econErr) {
+        // Snapshot failed (e.g. missing ingredient prices) — save with version link but no cost snapshot
+        console.warn('[menu-upsert] economics snapshot skipped:', econErr.message);
+        const raw = dishVersionId == null || dishVersionId === '' ? null : String(dishVersionId);
+        econ = { dishVersionId: raw, foodCostKopeksSnapshot: null, foodCostSnapshottedAt: null };
+      }
     } else {
       const existing = await prisma.menuDayItem.findUnique({ where: whereUnique });
       if (existing) {
