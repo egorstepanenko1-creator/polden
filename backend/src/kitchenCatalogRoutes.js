@@ -316,6 +316,41 @@ export function createKitchenCatalogRouter(prisma) {
     }
   });
 
+  // PUT /ingredients/:ingredientId/price — установить/обновить текущую цену (без интервалов)
+  r.put('/ingredients/:ingredientId/price', async (req, res) => {
+    const { ingredientId } = req.params;
+    const { pricePerUnitKopeks } = req.body || {};
+    const kopeks = Math.floor(Number(pricePerUnitKopeks));
+    if (!Number.isFinite(kopeks) || kopeks < 0) {
+      return res.status(400).json(fail('pricePerUnitKopeks required (integer kopeks >= 0)', 'VALIDATION'));
+    }
+    try {
+      const ing = await prisma.ingredient.findUnique({ where: { id: String(ingredientId) } });
+      if (!ing) return res.status(404).json(fail('Ingredient not found', 'NOT_FOUND'));
+      const unitId = ing.defaultUnitId;
+      const now = new Date();
+      // Find open price row
+      const open = await prisma.ingredientPrice.findFirst({
+        where: { ingredientId: String(ingredientId), unitId, effectiveTo: null },
+        orderBy: { effectiveFrom: 'desc' }
+      });
+      if (open) {
+        // Update in place
+        await prisma.ingredientPrice.update({
+          where: { id: open.id },
+          data: { pricePerUnitKopeks: kopeks }
+        });
+      } else {
+        await prisma.ingredientPrice.create({
+          data: { ingredientId: String(ingredientId), unitId, pricePerUnitKopeks: kopeks, effectiveFrom: now, effectiveTo: null }
+        });
+      }
+      res.json(ok({ ingredientId: String(ingredientId), unitId, pricePerUnitKopeks: kopeks }));
+    } catch (e) {
+      res.status(500).json(fail(e.message || 'set price failed', 'INTERNAL'));
+    }
+  });
+
   // --- Dishes ---
   r.get('/dishes', async (_req, res) => {
     try {

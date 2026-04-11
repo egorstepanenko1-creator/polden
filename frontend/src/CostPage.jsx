@@ -19,41 +19,75 @@ function fmtRub(kopeks) {
   return (kopeks / 100).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽';
 }
 
-/* ──────── IngredientRow — отдельный компонент, чтобы useState не был внутри .map ──────── */
-function IngredientRow({ ing, unitLabel, priceKopeks, idx, onPriceUpdate }) {
-  const [newPrice, setNewPrice] = useState('');
+/* ──────── IngredientRow — инлайн-редактирование цены и названия ──────── */
+function IngredientRow({ ing, unitLabel, priceKopeks, idx, onPriceSet, onRename, onDelete }) {
+  const [editPrice, setEditPrice] = useState(false);
+  const [priceStr, setPriceStr] = useState('');
+  const [editName, setEditName] = useState(false);
+  const [nameStr, setNameStr] = useState(ing.name);
 
-  const handleUpdate = () => {
-    const kopeks = Math.round(parseFloat(newPrice.replace(',', '.')) * 100);
-    if (!kopeks || kopeks <= 0) return;
-    onPriceUpdate(ing.id, ing.defaultUnitId, kopeks);
-    setNewPrice('');
+  const savePrice = () => {
+    const kopeks = Math.round(parseFloat(priceStr.replace(',', '.')) * 100);
+    if (!kopeks || kopeks <= 0) { setEditPrice(false); return; }
+    onPriceSet(ing.id, kopeks);
+    setEditPrice(false);
+  };
+
+  const saveName = () => {
+    if (nameStr.trim() && nameStr.trim() !== ing.name) onRename(ing.id, nameStr.trim());
+    setEditName(false);
   };
 
   return (
     <tr style={{ borderBottom: '1px solid #eee', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
-      <td style={{ padding: '8px 12px', fontWeight: 500 }}>{ing.name}</td>
+      <td style={{ padding: '8px 12px', fontWeight: 500 }}>
+        {editName ? (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input autoFocus value={nameStr} onChange={e => setNameStr(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditName(false); }}
+              style={{ padding: '3px 7px', borderRadius: 5, border: '1px solid #90caf9', fontSize: 13, width: 160 }} />
+            <button type="button" onClick={saveName} style={{ padding: '3px 8px', borderRadius: 5, border: 'none', background: '#1565c0', color: '#fff', cursor: 'pointer' }}>✓</button>
+            <button type="button" onClick={() => { setNameStr(ing.name); setEditName(false); }} style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #ccc', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <span onDoubleClick={() => setEditName(true)} title="Двойной клик — переименовать">{ing.name}</span>
+        )}
+      </td>
       <td style={{ padding: '8px 12px', color: '#666' }}>{unitLabel}</td>
       <td style={{ padding: '8px 12px' }}>
-        {priceKopeks
-          ? <strong style={{ color: '#333' }}>{fmtRub(priceKopeks)}</strong>
-          : <span style={{ color: '#e53935' }}>—</span>}
+        {editPrice ? (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <input autoFocus value={priceStr} onChange={e => setPriceStr(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') savePrice(); if (e.key === 'Escape') setEditPrice(false); }}
+              placeholder="₽"
+              style={{ width: 80, padding: '3px 7px', borderRadius: 5, border: '1px solid #90caf9', fontSize: 13 }} />
+            <button type="button" onClick={savePrice} style={{ padding: '3px 8px', borderRadius: 5, border: 'none', background: '#2e7d32', color: '#fff', cursor: 'pointer' }}>✓</button>
+            <button type="button" onClick={() => setEditPrice(false)} style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #ccc', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <span
+            onClick={() => { setPriceStr(priceKopeks ? String(priceKopeks / 100) : ''); setEditPrice(true); }}
+            title="Нажмите чтобы изменить цену"
+            style={{ cursor: 'pointer', padding: '3px 8px', borderRadius: 5, border: '1px solid transparent',
+              color: priceKopeks ? '#333' : '#e53935', fontWeight: priceKopeks ? 600 : 400 }}
+            onMouseEnter={e => e.currentTarget.style.border = '1px solid #ccc'}
+            onMouseLeave={e => e.currentTarget.style.border = '1px solid transparent'}
+          >
+            {priceKopeks ? fmtRub(priceKopeks) : '— нет цены'}
+          </span>
+        )}
       </td>
       <td style={{ padding: '8px 12px' }}>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <input
-            value={newPrice}
-            onChange={e => setNewPrice(e.target.value)}
-            placeholder="Новая цена"
-            style={{ width: 90, padding: '4px 8px', borderRadius: 6, border: '1px solid #ccc', fontSize: 13 }}
-            onKeyDown={e => e.key === 'Enter' && handleUpdate()}
-          />
-          <button
-            type="button"
-            onClick={handleUpdate}
-            style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#2e7d32', color: '#fff', cursor: 'pointer', fontSize: 13 }}
-          >✓</button>
-        </div>
+        <button type="button" onClick={() => { setNameStr(ing.name); setEditName(true); }}
+          title="Переименовать"
+          style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #ccc', cursor: 'pointer', fontSize: 12, marginRight: 4 }}>
+          ✎
+        </button>
+        <button type="button" onClick={() => onDelete(ing.id, ing.name)}
+          title="Удалить"
+          style={{ padding: '3px 8px', borderRadius: 5, border: '1px solid #ef9a9a', cursor: 'pointer', fontSize: 12, color: '#c62828', background: '#fff5f5' }}>
+          🗑
+        </button>
       </td>
     </tr>
   );
@@ -69,8 +103,8 @@ function ProductsTab() {
   const [success, setSuccess] = useState('');
   const [newName, setNewName] = useState('');
   const [newUnit, setNewUnit] = useState('');
-  const [newPrice, setNewPrice] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,11 +113,10 @@ function ProductsTab() {
         apiFetch('/api/kitchen/units'),
         apiFetch('/api/kitchen/ingredients')
       ]);
-      const filtered = (u || []).filter(x => ['kg', 'pcs', 'l', 'g', 'ml', 'tsp'].includes(x.code));
-      setUnits(filtered);
-      if (!newUnit && filtered.length) {
-        const kg = filtered.find(x => x.code === 'kg');
-        setNewUnit(kg ? kg.id : filtered[0].id);
+      setUnits(u || []);
+      if (!newUnit && u?.length) {
+        const kg = u.find(x => x.code === 'kg');
+        setNewUnit(kg ? kg.id : u[0].id);
       }
       setIngredients(ing || []);
       const pr = {};
@@ -103,64 +136,62 @@ function ProductsTab() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !newUnit || !newPrice) { setError('Заполните все поля'); return; }
-    const kopeks = Math.round(parseFloat(newPrice.replace(',', '.')) * 100);
-    if (!kopeks || kopeks <= 0) { setError('Некорректная цена'); return; }
+    if (!newName.trim() || !newUnit) { setError('Введите название и выберите единицу'); return; }
     setSaving(true); setError(''); setSuccess('');
     try {
-      const ing = await apiFetch('/api/kitchen/ingredients', { method: 'POST', body: { name: newName.trim(), defaultUnitId: newUnit } });
-      await apiFetch(`/api/kitchen/ingredients/${ing.id}/prices`, {
-        method: 'POST',
-        body: { unitId: newUnit, pricePerUnitKopeks: kopeks, effectiveFrom: new Date().toISOString() }
-      });
+      await apiFetch('/api/kitchen/ingredients', { method: 'POST', body: { name: newName.trim(), defaultUnitId: newUnit } });
       setSuccess(`✓ ${newName.trim()} добавлен`);
-      setNewName(''); setNewPrice('');
+      setNewName('');
       await load();
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   };
 
-  const handlePriceUpdate = async (ingId, unitId, kopeks) => {
+  const handlePriceSet = async (ingId, kopeks) => {
     try {
-      await apiFetch(`/api/kitchen/ingredients/${ingId}/prices`, {
-        method: 'POST',
-        body: { unitId, pricePerUnitKopeks: kopeks, effectiveFrom: new Date().toISOString() }
-      });
+      await apiFetch(`/api/kitchen/ingredients/${ingId}/price`, { method: 'PUT', body: { pricePerUnitKopeks: kopeks } });
       setPrices(p => ({ ...p, [ingId]: kopeks }));
-      setSuccess('✓ Цена обновлена');
+      setSuccess('✓ Цена сохранена');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (e) { setError(e.message); }
+  };
+
+  const handleRename = async (ingId, name) => {
+    try {
+      await apiFetch(`/api/kitchen/ingredients/${ingId}`, { method: 'PATCH', body: { name } });
+      setIngredients(prev => prev.map(i => i.id === ingId ? { ...i, name } : i));
+    } catch (e) { setError(e.message); }
+  };
+
+  const handleDelete = async (ingId) => {
+    try {
+      await apiFetch(`/api/kitchen/ingredients/${ingId}`, { method: 'PATCH', body: { active: false } });
+      setIngredients(prev => prev.filter(i => i.id !== ingId));
+      setConfirmDelete(null);
     } catch (e) { setError(e.message); }
   };
 
   const unitLabel = (unitId) => {
     const u = units.find(x => x.id === unitId);
-    return u ? u.code : '';
+    return u ? `${u.displayName} (${u.code})` : '';
   };
 
-  const visible = ingredients.filter(i =>
-    !i.name.includes('demo') && !i.name.includes('Demo') &&
-    !i.name.includes('заглушка') && !i.name.includes('mndf9') &&
-    i.active !== false
-  );
+  const visible = ingredients.filter(i => i.active !== false);
 
   return (
     <div>
-      <h2 style={{ margin: '0 0 16px' }}>🥕 Продукты</h2>
+      <h2 style={{ margin: '0 0 12px' }}>Продукты</h2>
       <p style={{ color: '#888', fontSize: 13, marginBottom: 16 }}>
-        Добавьте продукты с ценой за кг/шт/л — это основа для расчёта себестоимости блюд.
+        Нажмите на цену — изменить. Двойной клик на название — переименовать.
       </p>
 
-      <form onSubmit={handleAdd} style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', padding: '14px', background: '#f0f7f2', borderRadius: 10, border: '1px solid #c8e6c9' }}>
-        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Название (напр. Курица)"
+      <form onSubmit={handleAdd} style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', padding: '12px 14px', background: '#f0f7f2', borderRadius: 10, border: '1px solid #c8e6c9' }}>
+        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Название продукта"
           style={{ flex: 2, minWidth: 160, padding: '8px 12px', borderRadius: 7, border: '1px solid #ccc', fontSize: 14 }} />
         <select value={newUnit} onChange={e => setNewUnit(e.target.value)}
           style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid #ccc', fontSize: 14 }}>
           {units.map(u => <option key={u.id} value={u.id}>{u.displayName} ({u.code})</option>)}
         </select>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input value={newPrice} onChange={e => setNewPrice(e.target.value)} placeholder="Цена (₽)"
-            style={{ width: 100, padding: '8px 12px', borderRadius: 7, border: '1px solid #ccc', fontSize: 14 }} />
-          <span style={{ fontSize: 13, color: '#666' }}>за ед.</span>
-        </div>
         <button type="submit" disabled={saving}
           style={{ padding: '8px 18px', borderRadius: 7, border: 'none', background: '#2e7d32', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
           {saving ? '…' : '+ Добавить'}
@@ -170,14 +201,22 @@ function ProductsTab() {
       {error && <p style={{ color: '#e53935', marginBottom: 10 }}>{error}</p>}
       {success && <p style={{ color: '#2e7d32', marginBottom: 10 }}>{success}</p>}
 
+      {confirmDelete && (
+        <div style={{ background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: 8, padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span>Удалить <strong>{confirmDelete.name}</strong>?</span>
+          <button onClick={() => handleDelete(confirmDelete.id)} style={{ padding: '5px 14px', background: '#c62828', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Удалить</button>
+          <button onClick={() => setConfirmDelete(null)} style={{ padding: '5px 12px', border: '1px solid #ccc', borderRadius: 6, cursor: 'pointer' }}>Отмена</button>
+        </div>
+      )}
+
       {loading ? <p style={{ color: '#888' }}>Загрузка…</p> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ background: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
               <th style={{ textAlign: 'left', padding: '10px 12px' }}>Продукт</th>
               <th style={{ textAlign: 'left', padding: '10px 12px' }}>Ед.</th>
-              <th style={{ textAlign: 'left', padding: '10px 12px' }}>Цена</th>
-              <th style={{ textAlign: 'left', padding: '10px 12px' }}>Обновить</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px' }}>Цена / ед. (нажмите чтобы изменить)</th>
+              <th style={{ padding: '10px 12px' }}></th>
             </tr>
           </thead>
           <tbody>
@@ -188,7 +227,9 @@ function ProductsTab() {
                 idx={idx}
                 unitLabel={unitLabel(ing.defaultUnitId)}
                 priceKopeks={prices[ing.id]}
-                onPriceUpdate={handlePriceUpdate}
+                onPriceSet={handlePriceSet}
+                onRename={handleRename}
+                onDelete={(id, name) => setConfirmDelete({ id, name })}
               />
             ))}
           </tbody>
